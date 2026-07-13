@@ -1,0 +1,24 @@
+version = 1
+SPDX-PackageName = "tinyml"
+SPDX-PackageSupplier = "https://github.com/v-kut/tinyml"
+
+# documentation
+[[annotations]]
+path = ["**.md"]
+SPDX-FileType = "DOCUMENTATION"
+SPDX-FileCopyrightText = "2026 Vsevolod Kutsyn <vkutsyn@uw.edu>"
+SPDX-License-Identifier = "CC-BY-NC-4.0"
+
+# config files
+[[annotations]]
+path = [
+  ".github/**",
+  ".gitignore",
+  ".gitattributes",
+  ".gitmodules",
+  "lefthook.yml",
+  ".zed/**"
+]
+SPDX-FileType = "OTHER"
+SPDX-FileCopyrightText = "2026 Vsevolod Kutsyn <vkutsyn@uw.edu>"
+SPDX-License-Identifier = "CC0-1.0"
