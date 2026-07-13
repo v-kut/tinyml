@@ -4,7 +4,7 @@ SPDX-PackageSupplier = "https://github.com/v-kut/tinyml"
 
 # documentation
 [[annotations]]
-path = ["**.md"]
+path = ["**.md", "**.pdf", "**.png"]
 SPDX-FileType = "DOCUMENTATION"
 SPDX-FileCopyrightText = "2026 Vsevolod Kutsyn <vkutsyn@uw.edu>"
 SPDX-License-Identifier = "CC-BY-NC-4.0"

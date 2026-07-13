@@ -1,5 +1,5 @@
 ---
-title: "Lab 2"
+title: "Lab 3"
 date: \today
 author:
     - "Sam Kutsyn, 2581500"
