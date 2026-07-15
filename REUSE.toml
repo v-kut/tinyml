@@ -2,6 +2,13 @@ version = 1
 SPDX-PackageName = "tinyml"
 SPDX-PackageSupplier = "https://github.com/v-kut/tinyml"
 
+# code
+[[annotations]]
+path = ["**.py", "**.ipynb"]
+SPDX-FileType = "SOURCE"
+SPDX-FileCopyrightText = "2026 Vsevolod Kutsyn <vkutsyn@uw.edu>"
+SPDX-License-Identifier = "Apache-2.0"
+
 # documentation
 [[annotations]]
 path = ["**.md", "**.pdf", "**.png"]

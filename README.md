@@ -4,7 +4,7 @@ This is a repo for EE446 TinyMl course.
 
 ## License
 
-This repo strives to be REUSE compliant.
+This repo strives to be [REUSE](https://reuse.software/) compliant.
 
 Generally:
 

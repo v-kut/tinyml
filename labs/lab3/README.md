@@ -1,18 +1,9 @@
----
-title: "Lab 3"
-date: \today
-author:
-    - "Sam Kutsyn, 2581500"
-    - "EE 446"
-geometry: margin=1in
-fontsize: 11pt
-documentclass: article
-header-includes:
-    - \usepackage{graphicx}
-    - \usepackage{float}
-    - \floatplacement{figure}{H}
-    # - \setkeys{Gin}{width=0.7\textwidth,height=0.3\textheight,keepaspectratio}
-    - \usepackage{hyperref}
-    - \usepackage{amsmath}
-    - \usepackage{amsthm}
----
+# Lab 3
+
+## Preamble
+
+My setup consists of an arch machine, Zed, and Marimo. As such, I had to adjust the script slightly for my usecase. You can find the [`setup_env.sh`](setup_env.sh) script at the top level of the repo.
+
+## Submission
+
+You can find the Lab submission files in the [submission](./submission/) directory.
