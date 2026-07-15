@@ -4,7 +4,7 @@ SPDX-PackageSupplier = "https://github.com/v-kut/tinyml"
 
 # code
 [[annotations]]
-path = ["**.py", "**.ipynb"]
+path = ["**.py", "**.ipynb", "**.tflite"]
 SPDX-FileType = "SOURCE"
 SPDX-FileCopyrightText = "2026 Vsevolod Kutsyn <vkutsyn@uw.edu>"
 SPDX-License-Identifier = "Apache-2.0"
@@ -19,10 +19,10 @@ SPDX-License-Identifier = "CC-BY-NC-4.0"
 # config files
 [[annotations]]
 path = [
-  ".github/**",
-  ".gitignore",
-  ".gitattributes",
-  ".gitmodules",
+  "**.github/**",
+  "**.gitignore",
+  "**.gitattributes",
+  "**.gitmodules",
   "lefthook.yml",
   ".zed/**"
 ]
