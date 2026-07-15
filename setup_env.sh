@@ -1,32 +1,30 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# SPDX-FileCopyrightText: 2025 limes contributors, see AUTHORS.md
+# SPDX-FileCopyrightText: 2026 Vsevolod Kutsyn <vkutsyn@uw.edu>
 #
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileType: SOURCE
 
 # Stable TinyML Python environment for Arch Linux
 #
-# Requires `uv` (https://astral.sh/uv) to be already installed — this
-# script will NOT install it for you. It's used to fetch and pin a
-# specific CPython version for THIS venv only; your system-wide Python
-# (whatever pacman gives you) is never touched.
+# Requires `uv` (https://astral.sh/uv).
 #
 # Usage:
-#   bash setup_tinyml_arduino_env_arch.sh
-#   bash setup_tinyml_arduino_env_arch.sh tinyml-arduino /some/other/base/dir
+#   bash setup_env.sh
+#   bash setup_env.sh tinyml-arduino /some/other/base/dir
 #
 # Optional environment variables:
-#   RUN_SMOKE_TEST=0         Skip the smoke test at the end
-#   REINSTALL=1              Delete and recreate the environment if it exists
-#   INSTALL_ARDUINO_TFLM=1   Clone the Arduino TensorFlow Lite Micro examples library
-#   TFLM_REPO_URL            Override the TFLM repo to clone (defaults to official upstream)
-#   TFLM_REPO_REF            Branch/tag/commit to check out (optional)
-#   PY_VERSION=3.11.9        Override the pinned Python version for this env
-#   TF_VERSION=2.16.2        Override the pinned TensorFlow version (match to PY_VERSION)
-#   KERAS_VERSION=3.3.3      Override the pinned Keras version to match TF_VERSION
-#   TFMOT_VERSION=...        Override the pinned TF-MOT version to match TF_VERSION
+#   RUN_SMOKE_TEST=0|1         Skip the smoke test at the end
+#   REINSTALL=0|1              Delete and recreate the environment if it exists
+#   INSTALL_ARDUINO_TFLM=0|1   Clone the Arduino TensorFlow Lite Micro examples library
+#   TFLM_REPO_URL              Override the TFLM repo to clone (defaults to official upstream)
+#   TFLM_REPO_REF              Branch/tag/commit to check out (optional)
+#   PY_VERSION=3.10.14         Override the pinned Python version for this env
+#   TF_VERSION=2.14.1          Override the pinned TensorFlow version (match to PY_VERSION)
+#   KERAS_VERSION=2.14.0       Override the pinned Keras version to match TF_VERSION
+#   TFMOT_VERSION=0.8.0        Override the pinned TF-MOT version to match TF_VERSION
+#   CUDA=0|1                   Install with CUDA support
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -51,8 +49,8 @@ NUMPY_SPEC="numpy<2"
 # Arch's system-wide `cuda`/`cudnn` pacman packages, which always track the
 # latest CUDA and will NOT match TF 2.14. You still need the NVIDIA driver
 # installed system-wide (pacman -S nvidia nvidia-utils), just not the toolkit.
-WITH_CUDA="${WITH_CUDA:-0}"
-if [[ "$WITH_CUDA" == "1" ]]; then
+CUDA="${CUDA:-0}"
+if [[ "$CUDA" == "1" ]]; then
   TF_PACKAGE="tensorflow[and-cuda]==$TF_VERSION"
 else
   TF_PACKAGE="tensorflow==$TF_VERSION"
@@ -72,12 +70,7 @@ ensure_uv() {
     return 0
   fi
 
-  fail "uv is required but not found on PATH. This script will not install it for you.
-Install it yourself first, e.g.:
-  sudo pacman -S uv
-(uv is in the official 'extra' repo, no AUR needed). Alternatively:
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-Then rerun this script."
+  fail "uv is required but not found on PATH.
 }
 
 msg "Preparing stable TinyML environment on Arch Linux: $ENV_NAME"
@@ -120,7 +113,8 @@ uv pip install \
   pyserial \
   tqdm \
   tabulate \
-  marimo[recommended]
+  marimo[recommended] \
+  nbconvert
 
 msg "Installing Jupyter kernel: $DISPLAY_NAME"
 python -m ipykernel install --user --name "$KERNEL_NAME" --display-name "$DISPLAY_NAME"

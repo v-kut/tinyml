@@ -2,6 +2,17 @@
 
 This is a repo for EE446 TinyMl course.
 
+# Env
+
+My setup consists of an arch machine, Zed, and Marimo. As such, I had to adjust the setup script slightly. You can check it out at [`setup_env.sh`](setup_env.sh).
+
+1. Install uv
+2. `bash setup_env.sh CUDA=1`
+
+## Submission
+
+You can find the Lab submission files in the [submission](./submission/) directory.
+
 ## License
 
 This repo strives to be [REUSE](https://reuse.software/) compliant.
