@@ -2,7 +2,7 @@
 
 This is a repo for EE446 TinyMl course.
 
-# Env
+## Env
 
 My setup consists of an arch machine, Zed, and Marimo. As such, I had to adjust the setup script slightly. You can check it out at [`setup_env.sh`](setup_env.sh).
 

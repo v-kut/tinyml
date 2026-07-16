@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.23.14"
-app = marimo.App()
+app = marimo.App(width="medium")
 
 
 @app.cell
@@ -73,26 +73,34 @@ def _():
         strip_pruning
     )
 
+    import gc
+
     SEED = 42
     random.seed(SEED)
     np.random.seed(SEED)
     tf.random.set_seed(SEED)
 
+    tf.keras.backend.clear_session()
+    gc.collect()
+
     print("TensorFlow version:", tf.__version__)
     return (
         ConfusionMatrixDisplay,
         Path,
+        PolynomialDecay,
+        UpdatePruningStep,
         accuracy_score,
         classification_report,
         confusion_matrix,
         keras,
         layers,
+        math,
         np,
-        os,
         pd,
         plt,
+        prune_low_magnitude,
+        strip_pruning,
         tf,
-        urllib,
         zipfile,
     )
 
@@ -113,23 +121,26 @@ def _(mo):
 
 
 @app.cell
-def _(Path, urllib, zipfile):
-    dataset_url = "https://archive.ics.uci.edu/ml/machine-learning-databases/00240/UCI%20HAR%20Dataset.zip"
-    zip_path = Path("uci_har_dataset.zip")
-    extract_dir = Path(".")
+def _(Path, zipfile):
+    from urllib.request import urlretrieve
 
-    if not zip_path.exists():
-        print("Downloading dataset...")
-        urllib.request.urlretrieve(dataset_url, zip_path)
+    BASE_DIR = Path("./assets")
 
-    dataset_root = Path("UCI HAR Dataset")
-    if not dataset_root.exists():
-        print("Extracting dataset...")
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(extract_dir)
+    data_dir = BASE_DIR / "data"
+    dataset_dir = data_dir / "UCI HAR Dataset"
+    zip_path = data_dir / "uci_har_dataset.zip"
 
-    print("Dataset ready at:", dataset_root.resolve())
-    return
+    url = "https://archive.ics.uci.edu/ml/machine-learning-databases/00240/UCI%20HAR%20Dataset.zip"
+
+    if not dataset_dir.exists():
+        data_dir.mkdir(parents=True, exist_ok=True)
+        urlretrieve(url, zip_path)
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(data_dir)
+        print("Dataset downloaded.")
+    else:
+        print("Dataset already exists.")
+    return BASE_DIR, dataset_dir
 
 
 @app.cell(hide_code=True)
@@ -140,25 +151,30 @@ def _(mo):
     return
 
 
-app._unparsable_cell(
-    r"""
-    def load_har_data(root_dir="UCI HAR Dataset"):
-        root_dir = Path(root_dir)
+@app.cell
+def _(dataset_dir, pd):
+    def load_har_data():
+        x_train = pd.read_csv(
+            dataset_dir / "train" / "X_train.txt", sep='\s+', header=None
+        ).values.astype("float32")
+        y_train = pd.read_csv(
+            dataset_dir / "train" / "y_train.txt", sep='\s+', header=None
+        ).values.astype("float32")
+        x_test = pd.read_csv(
+            dataset_dir / "test" / "X_test.txt", sep='\s+', header=None
+        ).values.astype("float32")
+        y_test = pd.read_csv(
+            dataset_dir / "test" / "y_test.txt", sep='\s+', header=None
+        ).values.astype("float32")
 
-        # TODO:
-        # 1. Load X_train from train/X_train.txt as float32
-        # 2. Load y_train from train/y_train.txt as int32 and subtract 1
-        # 3. Load X_test from test/X_test.txt as float32
-        # 4. Load y_test from test/y_test.txt as int32 and subtract 1
+        y_train = y_train - 1
+        y_test = y_test - 1
+        y_train = y_train.flatten()
+        y_test = y_test.flatten()
 
-        X_train = #<--- Enter your code here --->#
-        y_train = #<--- Enter your code here --->#
-        X_test = #<--- Enter your code here --->#
-        y_test = #<--- Enter your code here --->#
+        return (x_train, y_train, x_test, y_test)
 
-        return X_train, y_train, X_test, y_test
-
-    X_train, y_train, X_test, y_test = load_har_data(dataset_root)
+    X_train, y_train, X_test, y_test = load_har_data()
 
     class_names = [
         "WALKING",
@@ -178,9 +194,15 @@ app._unparsable_cell(
     print("y_test shape :", y_test.shape)
     print("Number of features:", num_features)
     print("Number of classes :", num_classes)
-    """,
-    name="_"
-)
+    return (
+        X_test,
+        X_train,
+        class_names,
+        num_classes,
+        num_features,
+        y_test,
+        y_train,
+    )
 
 
 @app.cell(hide_code=True)
@@ -223,9 +245,9 @@ def _(keras, layers, num_classes, num_features):
         # Build a larger teacher DNN suitable for 561 numerical input features.
         model = keras.Sequential([
             layers.Input(shape=(input_dim,)),
-            #<--- Enter your code here --->#,
-            #<--- Enter your code here --->#,
-            #<--- Enter your code here --->#,
+            layers.Dense(256, activation="relu"),
+            layers.Dense(128, activation="relu"),
+            layers.Dense(64, activation="relu"),
             layers.Dense(num_classes, activation="softmax"),
         ])
         return model
@@ -235,8 +257,8 @@ def _(keras, layers, num_classes, num_features):
         # Build a smaller student DNN.
         model = keras.Sequential([
             layers.Input(shape=(input_dim,)),
-            #<--- Enter your code here --->#,
-            #<--- Enter your code here --->#,
+            layers.Dense(32, activation="relu"),
+            layers.Dense(16, activation="relu"),
             layers.Dense(num_classes, activation="softmax"),
         ])
         return model
@@ -257,7 +279,7 @@ def _(mo):
 
 
 @app.cell
-def _(keras, teacher_model):
+def _(X_train, keras, teacher_model, y_train):
     teacher_model.compile(
         optimizer=keras.optimizers.Adam(learning_rate=1e-3),
         loss="sparse_categorical_crossentropy",
@@ -275,7 +297,13 @@ def _(keras, teacher_model):
     # TODO:
     # Train the teacher model on the UCI HAR training split.
     teacher_history = teacher_model.fit(
-        #<--- Enter your code here --->#
+        X_train,
+        y_train,
+        validation_split=0.2,
+        epochs=30,
+        batch_size=64,
+        callbacks=teacher_callbacks,
+        verbose=1,
     )
     return (teacher_history,)
 
@@ -313,27 +341,32 @@ def _(mo):
 
 
 @app.cell
-def _(keras, student_baseline_model):
-    student_baseline_model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=1e-3),
-        loss="sparse_categorical_crossentropy",
-        metrics=["accuracy"],
-    )
+def _(
+    ConfusionMatrixDisplay,
+    X_test,
+    accuracy_score,
+    class_names,
+    classification_report,
+    confusion_matrix,
+    np,
+    plt,
+    teacher_model,
+    y_test,
+):
+    teacher_probs = teacher_model.predict(X_test, verbose=0)
+    teacher_preds = np.argmax(teacher_probs, axis=1)
+    teacher_acc = accuracy_score(y_test, teacher_preds)
+    print(f"Teacher Test Accuracy: {teacher_acc:.4f}\n")
+    print(classification_report(y_test, teacher_preds, target_names=class_names, digits=4))
 
-    student_callbacks = [
-        keras.callbacks.EarlyStopping(
-            monitor="val_accuracy",
-            patience=3,
-            restore_best_weights=True
-        )
-    ]
-
-    # TODO:
-    # Train the baseline student using the hard labels only.
-    student_baseline_history = student_baseline_model.fit(
-        #<--- Enter your code here --->#
+    disp_teacher = ConfusionMatrixDisplay(
+        confusion_matrix=confusion_matrix(y_test, teacher_preds), display_labels=class_names
     )
-    return
+    fig_teacher, ax_teacher = plt.subplots(figsize=(8, 6))
+    disp_teacher.plot(ax=ax_teacher, xticks_rotation=45, cmap="Blues", colorbar=False)
+    plt.title("Teacher Model Confusion Matrix")
+    plt.show()
+    return (teacher_acc,)
 
 
 @app.cell(hide_code=True)
@@ -349,9 +382,26 @@ def _(mo):
 
 @app.cell
 def _(X_train, keras, student_baseline_model, y_train):
-    student_baseline_model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.001), loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-    student_callbacks_1 = [keras.callbacks.EarlyStopping(monitor='val_accuracy', patience=3, restore_best_weights=True)]
-    student_baseline_history_1 = student_baseline_model.fit(X_train, y_train, validation_split=0.2, epochs=20, batch_size=64, callbacks=student_callbacks_1, verbose=1)
+    student_baseline_model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=0.001),
+        loss="sparse_categorical_crossentropy",
+        metrics=["accuracy"],
+    )
+    student_callbacks_1 = [
+        keras.callbacks.EarlyStopping(
+            monitor="val_accuracy", patience=3, restore_best_weights=True
+        )
+    ]
+
+    student_baseline_history_1 = student_baseline_model.fit(
+        X_train,
+        y_train,
+        validation_split=0.2,
+        epochs=20,
+        batch_size=64,
+        callbacks=student_callbacks_1,
+        verbose=1,
+    )
     return
 
 
@@ -363,8 +413,51 @@ def _(mo):
     return
 
 
-app._unparsable_cell(
-    r"""
+@app.cell
+def _(
+    ConfusionMatrixDisplay,
+    X_test,
+    accuracy_score,
+    class_names,
+    classification_report,
+    confusion_matrix,
+    np,
+    plt,
+    student_baseline_model,
+    y_test,
+):
+    student_baseline_probs = student_baseline_model.predict(X_test, verbose=0)
+    student_baseline_preds = np.argmax(student_baseline_probs, axis=1)
+    student_baseline_acc = accuracy_score(y_test, student_baseline_preds)
+    print(f"Baseline Student Test Accuracy: {student_baseline_acc:.4f}\n")
+    print(classification_report(y_test, student_baseline_preds, target_names=class_names, digits=4))
+
+    disp_base = ConfusionMatrixDisplay(
+        confusion_matrix=confusion_matrix(y_test, student_baseline_preds), display_labels=class_names
+    )
+    fig_base, ax_base = plt.subplots(figsize=(8, 6))
+    disp_base.plot(ax=ax_base, xticks_rotation=45, cmap="Oranges", colorbar=False)
+    plt.title("Baseline Student Confusion Matrix")
+    plt.show()
+    return (student_baseline_acc,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    # Part I: Knowledge Distillation
+
+    ## 10. Distillation Utilities
+
+    The distilled student is trained to optimize:
+    - a **hard-label loss** using the true class labels
+    - a **soft-label loss** using the teacher's softened probability distribution
+    """)
+    return
+
+
+@app.cell
+def _(keras, tf):
     class Distiller(keras.Model):
         def __init__(self, student, teacher):
             super().__init__()
@@ -395,16 +488,19 @@ app._unparsable_cell(
             # 3. Compute student_loss using the hard labels
             # 4. Compute distillation_loss using softened teacher/student outputs
             # 5. Combine the two losses using alpha
-            teacher_predictions = #<--- Enter your code here --->#
+            teacher_predictions = self.teacher(x, training=False)
 
             with tf.GradientTape() as tape:
-                student_predictions = #<--- Enter your code here --->#
-
-                student_loss = #<--- Enter your code here --->#
-
-                distillation_loss = #<--- Enter your code here --->#
-
-                loss = #<--- Enter your code here --->#
+                student_predictions = self.student(x, training=True)
+        
+                student_loss = self.student_loss_fn(y, student_predictions)
+        
+                distillation_loss = self.distillation_loss_fn(
+                    tf.nn.softmax(teacher_predictions / self.temperature, axis=1),
+                    tf.nn.softmax(student_predictions / self.temperature, axis=1)
+                )
+        
+                loss = self.alpha * student_loss + (1 - self.alpha) * distillation_loss
 
             trainable_vars = self.student.trainable_variables
             gradients = tape.gradient(loss, trainable_vars)
@@ -429,60 +525,8 @@ app._unparsable_cell(
             results = {m.name: m.result() for m in self.metrics}
             results.update({"student_loss": student_loss})
             return results
-    """,
-    name="_"
-)
 
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    # Part I: Knowledge Distillation
-
-    ## 10. Distillation Utilities
-
-    The distilled student is trained to optimize:
-    - a **hard-label loss** using the true class labels
-    - a **soft-label loss** using the teacher's softened probability distribution
-    """)
-    return
-
-
-@app.cell
-def _(
-    Distiller,
-    build_student_model,
-    keras,
-    num_classes,
-    num_features,
-    teacher_model,
-):
-    distilled_student = build_student_model(num_features, num_classes)
-
-    distiller = Distiller(student=distilled_student, teacher=teacher_model)
-    distiller.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=1e-3),
-        metrics=[keras.metrics.SparseCategoricalAccuracy(name="accuracy")],
-        student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
-        distillation_loss_fn=keras.losses.KLDivergence(),
-        alpha=0.3,
-        temperature=4.0,
-    )
-
-    distillation_callbacks = [
-        keras.callbacks.EarlyStopping(
-            monitor="val_accuracy",
-            patience=3,
-            restore_best_weights=True
-        )
-    ]
-
-    # TODO:
-    # Train the distilled student.
-    distillation_history = distiller.fit(
-        #<--- Enter your code here --->#
-    )
-    return
+    return (Distiller,)
 
 
 @app.cell(hide_code=True)
@@ -504,12 +548,32 @@ def _(
     teacher_model,
     y_train,
 ):
-    distilled_student_1 = build_student_model(num_features, num_classes)
-    distiller_1 = Distiller(student=distilled_student_1, teacher=teacher_model)
-    distiller_1.compile(optimizer=keras.optimizers.Adam(learning_rate=0.001), metrics=[keras.metrics.SparseCategoricalAccuracy(name='accuracy')], student_loss_fn=keras.losses.SparseCategoricalCrossentropy(), distillation_loss_fn=keras.losses.KLDivergence(), alpha=0.3, temperature=4.0)
-    distillation_callbacks_1 = [keras.callbacks.EarlyStopping(monitor='val_accuracy', patience=3, restore_best_weights=True)]
-    distillation_history_1 = distiller_1.fit(X_train, y_train, validation_split=0.2, epochs=20, batch_size=64, callbacks=distillation_callbacks_1, verbose=1)
-    return distillation_history_1, distilled_student_1
+    distilled_student = build_student_model(num_features, num_classes)
+    distiller = Distiller(student=distilled_student, teacher=teacher_model)
+    distiller.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=0.001),
+        metrics=[keras.metrics.SparseCategoricalAccuracy(name="accuracy")],
+        student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
+        distillation_loss_fn=keras.losses.KLDivergence(),
+        alpha=0.3,
+        temperature=4.0,
+    )
+    distillation_callbacks = [
+        keras.callbacks.EarlyStopping(
+            monitor="val_accuracy", patience=3, restore_best_weights=True
+        )
+    ]
+
+    distillation_history = distiller.fit(
+        X_train,
+        y_train,
+        validation_split=0.2,
+        epochs=20,
+        batch_size=64,
+        callbacks=distillation_callbacks,
+        verbose=1,
+    )
+    return distillation_history, distilled_student
 
 
 @app.cell(hide_code=True)
@@ -521,8 +585,8 @@ def _(mo):
 
 
 @app.cell
-def _(distillation_history_1, pd, plt):
-    distillation_history_df = pd.DataFrame(distillation_history_1.history)
+def _(distillation_history, pd, plt):
+    distillation_history_df = pd.DataFrame(distillation_history.history)
     plt.figure(figsize=(8, 4))
     plt.plot(distillation_history_df['accuracy'], label='Train Accuracy')
     plt.plot(distillation_history_df['val_accuracy'], label='Validation Accuracy')
@@ -551,12 +615,12 @@ def _(
     class_names,
     classification_report,
     confusion_matrix,
-    distilled_student_1,
+    distilled_student,
     np,
     plt,
     y_test,
 ):
-    distilled_probs = distilled_student_1.predict(X_test, verbose=0)
+    distilled_probs = distilled_student.predict(X_test, verbose=0)
     distilled_preds = np.argmax(distilled_probs, axis=1)
     distilled_acc = accuracy_score(y_test, distilled_preds)
     print(f'Distilled Student Test Accuracy: {distilled_acc:.4f}\n')
@@ -566,7 +630,7 @@ def _(
     disp.plot(ax=ax, xticks_rotation=45, cmap='Blues', colorbar=False)
     plt.title('Distilled Student - Confusion Matrix')
     plt.show()
-    return
+    return (distilled_acc,)
 
 
 @app.cell(hide_code=True)
@@ -577,67 +641,27 @@ def _(mo):
     return
 
 
-app._unparsable_cell(
-    r"""
-    def save_binary_model(model_content, filename):
-        with open(filename, "wb") as f:
-            f.write(model_content)
-        return os.path.getsize(filename) / 1024.0  # KB
-
-    def evaluate_tflite_model(tflite_model, X, y_true):
-        interpreter = tf.lite.Interpreter(model_content=tflite_model)
-        interpreter.allocate_tensors()
-
-        input_details = interpreter.get_input_details()[0]
-        output_details = interpreter.get_output_details()[0]
-
-        input_scale, input_zero_point = input_details["quantization"]
-        output_scale, output_zero_point = output_details["quantization"]
-
-        y_pred = []
-
-        for i in range(len(X)):
-            x = X[i:i+1].astype(np.float32)
-
-            # TODO:
-            # Quantize the input when the model expects int8/uint8 input.
-            if input_details["dtype"] == np.int8:
-                x = #<--- Enter your code here --->#
-            elif input_details["dtype"] == np.uint8:
-                x = #<--- Enter your code here --->#
-            else:
-                x = x.astype(input_details["dtype"])
-
-            interpreter.set_tensor(input_details["index"], x)
-            interpreter.invoke()
-
-            output = interpreter.get_tensor(output_details["index"])
-
-            # TODO:
-            # Dequantize the output when needed.
-            if output_details["dtype"] == np.int8:
-                output = #<--- Enter your code here --->#
-            elif output_details["dtype"] == np.uint8:
-                output = #<--- Enter your code here --->#
-
-            pred = int(np.argmax(output, axis=1)[0])
-            y_pred.append(pred)
-
-        acc = accuracy_score(y_true, y_pred)
-        return acc, np.array(y_pred)
-
-    def convert_to_tflite_fp32(model):
-        converter = tf.lite.TFLiteConverter.from_keras_model(model)
-        return converter.convert()
-
-    def representative_data_gen():
-        # TODO:
-        # Yield small batches from X_train for calibration.
-        for i in range(#<--- Enter your code here --->#):
-            yield [#<--- Enter your code here --->#]
-    """,
-    name="_"
-)
+@app.cell
+def _(
+    distilled_acc,
+    distilled_student,
+    pd,
+    student_baseline_acc,
+    student_baseline_model,
+    teacher_acc,
+    teacher_model,
+):
+    part1_results = pd.DataFrame({
+        "Model": ["Teacher", "Baseline Student", "Distilled Student"],
+        "Test Accuracy": [teacher_acc, student_baseline_acc, distilled_acc],
+        "Trainable Params": [
+            teacher_model.count_params(),
+            student_baseline_model.count_params(),
+            distilled_student.count_params(),
+        ],
+    })
+    part1_results
+    return
 
 
 @app.cell(hide_code=True)
@@ -651,11 +675,15 @@ def _(mo):
 
 
 @app.cell
-def _(X_train, accuracy_score, np, os, tf):
+def _(BASE_DIR, Path, X_train, accuracy_score, np, tf):
     def save_binary_model(model_content, filename):
-        with open(filename, "wb") as f:
-            f.write(model_content)
-        return os.path.getsize(filename) / 1024.0  # KB
+        model_dir = Path(f"./{BASE_DIR}/knowledge_distillation_pruning_quantization/models/")
+        model_dir.mkdir(parents=True, exist_ok=True)
+
+        filepath = model_dir / filename
+        filepath.write_bytes(model_content)
+
+        return filepath.stat().st_size / 1024  # KB
 
     def evaluate_tflite_model(tflite_model, X, y_true):
         interpreter = tf.lite.Interpreter(model_content=tflite_model)
@@ -703,7 +731,12 @@ def _(X_train, accuracy_score, np, os, tf):
         for i in range(min(200, len(X_train))):
             yield [X_train[i:i+1]]
 
-    return evaluate_tflite_model, representative_data_gen, save_binary_model
+    return (
+        convert_to_tflite_fp32,
+        evaluate_tflite_model,
+        representative_data_gen,
+        save_binary_model,
+    )
 
 
 @app.cell(hide_code=True)
@@ -714,8 +747,18 @@ def _(mo):
     return
 
 
-app._unparsable_cell(
-    r"""
+@app.cell
+def _(
+    PolynomialDecay,
+    UpdatePruningStep,
+    X_train,
+    distilled_student,
+    keras,
+    math,
+    prune_low_magnitude,
+    tf,
+    y_train,
+):
     pruning_epochs = 10
     batch_size = 64
     steps_per_epoch = math.ceil((0.8 * len(X_train)) / batch_size)
@@ -733,10 +776,10 @@ app._unparsable_cell(
     # 1. Clone the distilled student model.
     # 2. Copy the distilled student weights into the cloned model.
     # 3. Wrap the cloned model using prune_low_magnitude with pruning_params.
-    student_for_pruning = #<--- Enter your code here --->#
-    #<--- Enter your code here --->#
+    student_for_pruning = tf.keras.models.clone_model(distilled_student)
+    student_for_pruning.set_weights(distilled_student.get_weights())
 
-    pruned_distilled_model = #<--- Enter your code here --->#
+    pruned_distilled_model = prune_low_magnitude(student_for_pruning, **pruning_params)
 
     pruned_distilled_model.compile(
         optimizer=keras.optimizers.Adam(learning_rate=1e-4),
@@ -762,11 +805,15 @@ app._unparsable_cell(
     # - callbacks=pruning_callbacks
     # - verbose=1
     pruning_history = pruned_distilled_model.fit(
-        #<--- Enter your code here --->#
+        X_train,
+        y_train,
+        validation_split=0.2,
+        epochs=pruning_epochs,
+        batch_size=batch_size,
+        callbacks=pruning_callbacks,
+        verbose=1,
     )
-    """,
-    name="_"
-)
+    return (pruned_distilled_model,)
 
 
 @app.cell(hide_code=True)
@@ -777,17 +824,26 @@ def _(mo):
     return
 
 
-app._unparsable_cell(
-    r"""
+@app.cell
+def _(
+    X_test,
+    convert_to_tflite_fp32,
+    evaluate_tflite_model,
+    pruned_distilled_model,
+    save_binary_model,
+    strip_pruning,
+    tf,
+    y_test,
+):
     # TODO:
     # Convert the pruned model with the pruning wrappers still attached.
-    pruned_with_mask_tflite = #<--- Enter your code here --->#
+    pruned_with_mask_tflite = convert_to_tflite_fp32(pruned_distilled_model)
     pruned_with_mask_size_kb = save_binary_model(pruned_with_mask_tflite, "pruned_distilled_with_mask_fp32.tflite")
     pruned_with_mask_acc, pruned_with_mask_preds = evaluate_tflite_model(pruned_with_mask_tflite, X_test, y_test)
 
     # TODO:
     # Strip the pruning wrappers and convert again using sparse optimization.
-    stripped_pruned_model = #<--- Enter your code here --->#
+    stripped_pruned_model = strip_pruning(pruned_distilled_model)
 
     converter = tf.lite.TFLiteConverter.from_keras_model(stripped_pruned_model)
     converter.optimizations = [tf.lite.Optimize.EXPERIMENTAL_SPARSITY]
@@ -800,52 +856,19 @@ app._unparsable_cell(
     print(f"Pruned distilled model with mask size (KB): {pruned_with_mask_size_kb:.2f}")
     print(f"Stripped sparse distilled model accuracy: {stripped_sparse_acc:.4f}")
     print(f"Stripped sparse distilled model size (KB): {stripped_sparse_size_kb:.2f}")
-    """,
-    name="_"
-)
+    return (
+        pruned_with_mask_acc,
+        pruned_with_mask_size_kb,
+        stripped_pruned_model,
+        stripped_sparse_acc,
+        stripped_sparse_size_kb,
+    )
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 17. Convert the Pruned Distilled Student Before and After Stripping
-    """)
-    return
-
-
-app._unparsable_cell(
-    r"""
-    # TODO:
-    # Configure the converter for full integer quantization of the stripped sparse model.
-    converter = tf.lite.TFLiteConverter.from_keras_model(stripped_pruned_model)
-    converter.optimizations = #<--- Enter your code here --->#
-    converter.representative_dataset = #<--- Enter your code here --->#
-    converter.target_spec.supported_ops = #<--- Enter your code here --->#
-    converter.inference_input_type = #<--- Enter your code here --->#
-    converter.inference_output_type = #<--- Enter your code here --->#
-
-    stripped_sparse_int8_tflite = converter.convert()
-    stripped_sparse_int8_size_kb = save_binary_model(
-        stripped_sparse_int8_tflite,
-        "distilled_stripped_sparse_int8.tflite"
-    )
-    stripped_sparse_int8_acc, stripped_sparse_int8_preds = evaluate_tflite_model(
-        stripped_sparse_int8_tflite,
-        X_test,
-        y_test
-    )
-
-    print(f"Stripped Sparse + INT8 Accuracy: {stripped_sparse_int8_acc:.4f}")
-    print(f"Stripped Sparse + INT8 Size (KB): {stripped_sparse_int8_size_kb:.2f}")
-    """,
-    name="_"
-)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## 18. Apply Full Integer Quantization to the Stripped Sparse Distilled Student
+    ## 17. Apply Full Integer Quantization to the Stripped Sparse Distilled Student
     """)
     return
 
@@ -860,14 +883,14 @@ def _(
     tf,
     y_test,
 ):
-    converter = tf.lite.TFLiteConverter.from_keras_model(stripped_pruned_model)
-    converter.optimizations = [tf.lite.Optimize.DEFAULT, tf.lite.Optimize.EXPERIMENTAL_SPARSITY]
-    converter.representative_dataset = representative_data_gen
-    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-    converter.inference_input_type = tf.int8
-    converter.inference_output_type = tf.int8
+    converter32 = tf.lite.TFLiteConverter.from_keras_model(stripped_pruned_model)
+    converter32.optimizations = [tf.lite.Optimize.DEFAULT, tf.lite.Optimize.EXPERIMENTAL_SPARSITY]
+    converter32.representative_dataset = representative_data_gen
+    converter32.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+    converter32.inference_input_type = tf.int8
+    converter32.inference_output_type = tf.int8
 
-    stripped_sparse_int8_tflite = converter.convert()
+    stripped_sparse_int8_tflite = converter32.convert()
     stripped_sparse_int8_size_kb = save_binary_model(
         stripped_sparse_int8_tflite,
         "distilled_stripped_sparse_int8.tflite"
@@ -897,16 +920,24 @@ def _(mo):
 
 @app.cell
 def _(
-    distilled_fp32_acc,
-    distilled_fp32_size_kb,
+    X_test,
+    convert_to_tflite_fp32,
+    distilled_student,
+    evaluate_tflite_model,
     pd,
     pruned_with_mask_acc,
     pruned_with_mask_size_kb,
+    save_binary_model,
     stripped_sparse_acc,
     stripped_sparse_int8_acc,
     stripped_sparse_int8_size_kb,
     stripped_sparse_size_kb,
+    y_test,
 ):
+    distilled_fp32_tflite = convert_to_tflite_fp32(distilled_student)
+    distilled_fp32_size_kb = save_binary_model(distilled_fp32_tflite, "distilled_student_fp32.tflite")
+    distilled_fp32_acc, distilled_fp32_preds = evaluate_tflite_model(distilled_fp32_tflite, X_test, y_test)
+
     part2_results = pd.DataFrame([
         ["Distilled Student TFLite", "FP32", distilled_fp32_acc, distilled_fp32_size_kb],
         ["Pruned Distilled TFLite (with mask)", "FP32", pruned_with_mask_acc, pruned_with_mask_size_kb],
@@ -961,10 +992,15 @@ def _(mo):
 
     Answer the following in your lab report:
     1. How did the **baseline student** compare with the **distilled student**?
+       > The distilled student slightly outperformed the baseline student despite having the same architecture, since it had access to the teacher's output distribution during training.
     2. Did **knowledge distillation** help the smaller model retain performance?
+       > Yes, knowledge distillation helped the small student retain accuracy closer to the teacher than training on hard labels alone.
     3. What happened to the model size after **pruning** and after **INT8 quantization**?
+       > Pruning alone (with the mask still attached) didn't shrink the file much, but stripping     > the pruning wrappers and converting with EXPERIMENTAL_SPARSITY reduced size noticeably,     > and INT8 quantization on top reduced it further (roughly a 4x cut from FP32).
     4. Which model would you choose for **Arduino deployment**, and why?
+       > The stripped sparse INT8 model, since it offers the smallest footprint and fastest inference with negligible accuracy loss.
     5. Why is the final **sparse INT8 model** a good TinyML deployment candidate?
+       > It combines three compressions into one compact, integer-only model that's well-suited for microcontroller inference.
     """)
     return
 
