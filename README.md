@@ -1,6 +1,6 @@
 # tinyml
 
-This is a repo for EE446 TinyMl course.
+This is a repo for EE446 TinyML course.
 
 ## Env
 
