@@ -24,7 +24,8 @@ path = [
   "**.gitattributes",
   "**.gitmodules",
   "lefthook.yml",
-  ".zed/**"
+  ".zed/**",
+  "labs/lab5/**.cc"
 ]
 SPDX-FileType = "OTHER"
 SPDX-FileCopyrightText = "2026 Vsevolod Kutsyn <vkutsyn@uw.edu>"
