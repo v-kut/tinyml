@@ -9,10 +9,6 @@ My setup consists of an arch machine, Zed, and Marimo. As such, I had to adjust 
 1. Install uv
 2. `bash setup_env.sh CUDA=1`
 
-## Submission
-
-You can find the Lab submission files in the [submission](./submission/) directory.
-
 ## License
 
 This repo strives to be [REUSE](https://reuse.software/) compliant.
