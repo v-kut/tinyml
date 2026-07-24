@@ -30,7 +30,7 @@ You can access the project at https://studio.edgeimpulse.com/studio/1044661.
 
 # Task 2
 
-TO imrove the inference performance, we have switched the flatten layer for the dense layer and increased the training epochs to 120, which allowed us to reach 96% accuracy in testing.
+To improve the inference performance, we have switched the flatten layer for the dense layer and increased the training epochs to 120, which allowed us to reach 96% accuracy in testing.
 
 ![New model architecture.](./assets/new_model_arch.png)
 
