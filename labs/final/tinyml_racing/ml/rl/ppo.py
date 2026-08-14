@@ -27,6 +27,7 @@ from tinyml_racing import progress
 from tinyml_racing.ml.config import CLIP_OBS, RacingEnvConfig, TrainConfig
 from tinyml_racing.ml.env import RacingEnv
 from tinyml_racing.ml.rl.callbacks import (
+    BestSnapshotCallback,
     PolicySnapshotCallback,
     ProgressCallback,
     QuietEvalCallback,
@@ -107,7 +108,7 @@ def reward_clip() -> float:
 
 class FixedEpisode(gym.Wrapper[np.ndarray, np.ndarray, np.ndarray, np.ndarray]):
     """An env whose every `reset` replays the same episode, so successive
-    evaluations score the same task and `best_model.zip` is a real comparison.
+    evaluations score the same task and `best.pt` is a real comparison.
     A caller-passed seed is ignored on purpose.
     """
 
@@ -143,7 +144,7 @@ def build_eval_env(
     per episode is how `evaluate_policy` divides them evenly.
 
     Deliberately asymmetric with training: this sensor is the clean one, so
-    `best_model.zip` and the `eval` number are selected without dropouts or range
+    `best.pt` and the `eval` number are selected without dropouts or range
     noise while PPO learns from whatever `env_cfg.lidar` configures.
     """
     eval_cfg = env_cfg.evaluation_variant(clean_sensor=True)
@@ -267,9 +268,12 @@ def train_ppo(
         ),
         evaluator := QuietEvalCallback(
             eval_env,
-            # Both land in `training/`, under names the callback picks:
-            # `best_model.zip` and `evaluations.npz`.
-            best_model_save_path=str(run.training),
+            # SB3 decides what "best" is; `BestSnapshotCallback` records it as
+            # `training/best.pt`, which distillation teaches from. No
+            # `best_model_save_path`: a bare `best_model.zip` has no
+            # `VecNormalize` statistics, so nothing downstream can read it.
+            callback_on_new_best=BestSnapshotCallback(run, env_cfg, policy_kwargs),
+            # `evaluations.npz`, under the name the callback picks.
             log_path=str(run.training),
             n_eval_episodes=train_cfg.n_eval_episodes,
             eval_freq=max(train_cfg.eval_freq // train_cfg.n_envs, 1),

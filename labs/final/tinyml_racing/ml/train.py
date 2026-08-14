@@ -183,9 +183,19 @@ def pretrain(run: Run, env_cfg: RacingEnvConfig, train_cfg: TrainConfig) -> Warm
 
 
 def distill(run: Run, env_cfg: RacingEnvConfig, train_cfg: TrainConfig) -> None:
-    """Stage three: teach `student_arch` to imitate what PPO produced."""
+    """Stage three: teach `student_arch` to imitate PPO's best-scoring policy.
+
+    `snapshot.pt` is wherever PPO stopped, which is not where it was best: the
+    reward is shaped and the last update is not the good one often enough to
+    matter. `EvalCallback` already picked a best over held-out layouts and
+    `BestSnapshotCallback` wrote it out, so the choice costs a `Path.exists`.
+    A run with no evaluation in it (`--eval-freq` past `--total-steps`) has no
+    best, and the last policy is the only candidate.
+    """
     cfg = train_cfg.regression
-    teacher = load_snapshot(run.snapshot)
+    source = run.best if run.best.exists() else run.snapshot
+    teacher = load_snapshot(source)
+    logger.info("distilling from %s at %d steps", source.name, teacher.num_timesteps)
     dataset = collect(
         snapshot_teacher(teacher),
         env_cfg,

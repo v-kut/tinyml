@@ -55,7 +55,7 @@ def test_every_path_lives_under_the_run(run):
             "checkpoints",
             "snapshot",
             "final_model",
-            "best_model",
+            "best",
             "vecnormalize",
             "evaluations",
             "artifacts",

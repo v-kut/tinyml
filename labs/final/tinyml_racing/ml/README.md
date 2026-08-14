@@ -18,7 +18,7 @@ Nothing here imports `deploy/`, and the viewer is imported lazily and only for
 | `snapshot.py`           | the train -> deploy file format: `ObsNorm`, `SnapshotPayload`, `save_snapshot`, `publish_snapshot`, `load_snapshot`, `Snapshot.act`                                                                                                  |
 | `train.py`              | the `tinyml-train` CLI: stage orchestration, `publish`, `score`, `link_latest`                                                                                                                                                       |
 | `rl/ppo.py`             | the PPO stage: vec-env construction, worker seeding, `VecNormalize` seeding, reward clipping, pinned evaluation episodes, the warm start                                                                                             |
-| `rl/callbacks.py`       | `TrainingMetricsCallback`, `PolicySnapshotCallback`, `ProgressCallback`, `RotatingCheckpointCallback`, `QuietEvalCallback`                                                                                                           |
+| `rl/callbacks.py`       | `TrainingMetricsCallback`, `PolicySnapshotCallback`, `BestSnapshotCallback`, `ProgressCallback`, `RotatingCheckpointCallback`, `QuietEvalCallback`                                                                                   |
 | `regression/dataset.py` | teacher rollouts: `pure_pursuit_teacher`, `snapshot_teacher`, `Dataset`, `collect`                                                                                                                                                   |
 | `regression/fit.py`     | the supervised fit: `build_policy`, the episode-level split, `fit_policy`, `FitResult`                                                                                                                                               |
 | `../progress.py`        | one level up: the live one-line-per-stage display and the `s` skip key, shared with `tinyml-build` and `tinyml-board`. A no-op outside a session                                                                                     |
@@ -36,6 +36,14 @@ would silently take a new block's default at a different `obs_dim` than its weig
 `TRAIN_SEED_RANGE` and `EVAL_SEED_RANGE` are disjoint, so no reported number comes from a
 layout the policy trained on.
 
+`snapshot.pt` is always the newest policy, never the best one: PPO republishes it as it
+goes and `_finish` writes it again at exit, so an interrupted run still deploys. The one
+place that is the wrong policy is distillation, whose student overwrites it and ships, so
+that stage teaches from `training/best.pt` when the run has one: `EvalCallback` picks the
+best mean return over the held-out layouts and `BestSnapshotCallback` records that policy
+with the `VecNormalize` statistics it needs. SB3's own `best_model.zip` is not written,
+having neither.
+
 ## Run directory
 
 ```
@@ -43,7 +51,7 @@ data/runs/<run>/
   config.json      env + training settings for every stage, and the git SHA
   train.log
   tb/              TensorBoard events
-  training/        checkpoints, best/final policy, VecNormalize stats, snapshot.pt
+  training/        checkpoints, best.pt / final policy, VecNormalize stats, snapshot.pt
   artifacts/       written by ../deploy/
 ```
 

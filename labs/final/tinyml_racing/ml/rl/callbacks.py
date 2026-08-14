@@ -13,7 +13,7 @@ import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
 
 from tinyml_racing.ml.config import PolicyKwargs, RacingEnvConfig
-from tinyml_racing.ml.snapshot import ObsNorm, publish_snapshot
+from tinyml_racing.ml.snapshot import ObsNorm, publish_snapshot, save_snapshot
 from tinyml_racing.utils import Run
 
 logger = logging.getLogger(__name__)
@@ -154,6 +154,35 @@ class PolicySnapshotCallback(BaseCallback):
         return True
 
 
+class BestSnapshotCallback(PolicySnapshotCallback):
+    """The best-scoring policy so far, in the format the rest of the run reads.
+
+    Hangs off `EvalCallback(callback_on_new_best=...)`, so SB3 decides what
+    "best" is and this only records it. Its own `best_model.zip` is not enough:
+    `EvalCallback` saves the model alone, and a policy without the
+    `VecNormalize` statistics it was trained against cannot be scored, distilled
+    or exported. Distillation teaches from this file.
+    """
+
+    @override
+    def _on_training_start(self) -> None:
+        # No evaluation has happened yet, so there is no best to record. The
+        # inherited hook would publish the starting policy as one.
+        return
+
+    @override
+    def _on_step(self) -> bool:
+        save_snapshot(
+            self.run.best,
+            self.model.policy,
+            self.env_cfg,
+            self.policy_kwargs,
+            self.num_timesteps,
+            obs_norm=ObsNorm.from_venv(self.model.get_env()),
+        )
+        return True
+
+
 class QuietEvalCallback(EvalCallback):
     """`EvalCallback` without its multi-line console dump.
 
@@ -211,7 +240,7 @@ class ProgressCallback(BaseCallback):
 class RotatingCheckpointCallback(CheckpointCallback):
     """`CheckpointCallback`, keeping only the newest `keep` checkpoints.
 
-    Nothing reads the older ones, the best policy is `EvalCallback`'s, the
+    Nothing reads the older ones, the best policy is `best.pt`, the
     last is written at exit, deployment takes `snapshot.pt`, and a long run
     leaves tens of MB of them in the directory a human opens to find the model.
     """

@@ -26,6 +26,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from tinyml_racing.ml import snapshot as snapshot_module
 from tinyml_racing.ml.config import PolicyKwargs, RacingEnvConfig
 from tinyml_racing.ml.env import RacingEnv
+from tinyml_racing.ml.rl.callbacks import BestSnapshotCallback
 from tinyml_racing.ml.snapshot import (
     SNAPSHOT_VERSION,
     ObsNorm,
@@ -109,6 +110,34 @@ def test_version_mismatch_is_rejected(snapshot, tmp_path):
     torch.save(payload, bad)
     with pytest.raises(ValueError, match="version"):
         load_snapshot(bad)
+
+
+def test_the_best_policy_is_recorded_as_a_snapshot_not_as_a_bare_model(trained, tmp_path):
+    """`EvalCallback`'s own `best_model.zip` saves the model alone.
+
+    A policy without the `VecNormalize` statistics it was trained against is a
+    function of an input transform nobody can reconstruct, which is why
+    `distill` could never teach from SB3's file. `BestSnapshotCallback` writes
+    the run's format instead, and writes nothing before an evaluation has
+    happened: the starting policy is not a best.
+    """
+    model, venv = trained
+    run = Run(tmp_path / "run")
+    callback = BestSnapshotCallback(run, ENV_CFG, POLICY_KWARGS)
+    callback.init_callback(model)
+
+    callback.on_training_start({}, {})
+    assert not run.best.exists()
+
+    assert callback.on_step() is True
+    loaded = load_snapshot(run.best)
+    raw = np.random.default_rng(2).normal(size=ENV_CFG.obs_dim).astype(np.float32)
+    np.testing.assert_allclose(
+        loaded.normalize_obs(raw), venv.normalize_obs(raw), rtol=1e-5, atol=1e-6
+    )
+    np.testing.assert_allclose(
+        loaded.act(raw), model.predict(venv.normalize_obs(raw), deterministic=True)[0], atol=1e-6
+    )
 
 
 @pytest.fixture

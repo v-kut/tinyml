@@ -294,7 +294,7 @@ class TrainConfig:
     # converted to callback frequencies with `n_envs` factored in.
     checkpoint_freq: int = 100_000
     # Rolling window on disk. Checkpoints are restart points, not a record:
-    # `EvalCallback` keeps the best policy and training saves the last.
+    # `BestSnapshotCallback` keeps the best policy and training saves the last.
     checkpoint_keep: int = 20
     snapshot_freq: int = 10_000
     eval_freq: int = 100_000

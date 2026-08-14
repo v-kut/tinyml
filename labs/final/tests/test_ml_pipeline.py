@@ -11,15 +11,18 @@ over one pinned layout.
 """
 
 import inspect
+from pathlib import Path
 
 import numpy as np
 import pytest
 
+from tinyml_racing.ml import train as train_mod
 from tinyml_racing.ml.config import (
     CLIP_OBS,
     PolicyKwargs,
     RacingEnvConfig,
     RegressionConfig,
+    TrainConfig,
 )
 from tinyml_racing.ml.env import RacingEnv
 from tinyml_racing.ml.regression import fit
@@ -27,6 +30,7 @@ from tinyml_racing.ml.regression.dataset import Dataset, collect
 from tinyml_racing.ml.rl.ppo import reward_clip
 from tinyml_racing.ml.rollout import iter_rollout
 from tinyml_racing.sim.car import CarParams
+from tinyml_racing.utils import Run
 
 # Asymmetric, and tiny in both heads: the fits below only need a policy that
 # constructs and converges quickly, but the two arches being different keeps
@@ -444,3 +448,43 @@ def test_collect_clips_the_executed_action_with_or_without_noise(monkeypatch, no
     # recording too would train the student to demand the rail rather than to
     # reproduce the expert.
     np.testing.assert_allclose(dataset.actions, np.array([[3.0, -2.5]] * 40, dtype=np.float32))
+
+
+# --------------------------------------------------------------------------
+# distill
+# --------------------------------------------------------------------------
+
+
+class _LoadedError(Exception):
+    """Raised from the stubbed loader: which file the stage chose is the whole
+    contract, and fitting a student to find out costs 200k samples.
+    """
+
+
+@pytest.mark.parametrize("has_best", [True, False])
+def test_distillation_teaches_from_the_best_policy_when_the_run_has_one(
+    tmp_path, monkeypatch, has_best
+):
+    """`snapshot.pt` is where PPO stopped, `best.pt` is where it scored best.
+
+    The student is what ships, so it must not inherit a last update that
+    happened to be a bad one. A run with no evaluation in it has no `best.pt`,
+    and then the last policy is the only candidate there is.
+    """
+    run = Run(tmp_path / "run_x")
+    run.training.mkdir(parents=True)
+    run.snapshot.touch()
+    if has_best:
+        run.best.touch()
+
+    seen: list[Path] = []
+
+    def loader(path):
+        seen.append(Path(path))
+        raise _LoadedError
+
+    monkeypatch.setattr(train_mod, "load_snapshot", loader)
+    with pytest.raises(_LoadedError):
+        train_mod.distill(run, pinned(), TrainConfig())
+
+    assert seen == [run.best if has_best else run.snapshot]

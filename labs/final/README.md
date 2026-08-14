@@ -43,7 +43,7 @@ data/runs/<run>/
   config.json      env + training settings for every stage, and the git SHA
   train.log
   tb/              TensorBoard events; tensorboard --logdir data/runs/<run>/tb
-  training/        checkpoints, best/final policy, VecNormalize stats, snapshot.pt
+  training/        checkpoints, best.pt / final policy, VecNormalize stats, snapshot.pt
   artifacts/       actor.npz, actor.onnx, model.h, report.json, manifest.json
 ```
 

@@ -149,9 +149,15 @@ class Run:
         return self.training / "final_model.zip"
 
     @property
-    def best_model(self) -> Path:
-        """Written by SB3's `EvalCallback`, which picks the name."""
-        return self.training / "best_model.zip"
+    def best(self) -> Path:
+        """The best-scoring policy `EvalCallback` saw, in snapshot format.
+
+        Written by `BestSnapshotCallback` rather than by SB3, whose own
+        `best_model.zip` carries no `VecNormalize` statistics and so cannot be
+        turned back into something deployable. Distillation teaches from this
+        when it exists; absent (no evaluation ran) the last policy is it.
+        """
+        return self.training / "best.pt"
 
     @property
     def vecnormalize(self) -> Path:
