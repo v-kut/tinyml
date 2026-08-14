@@ -1,0 +1,20 @@
+version = 1
+SPDX-PackageName = "tinyml-racing"
+SPDX-PackageSupplier = "https://github.com/v-kut/tinyml"
+
+# Everything written for this project: Python package, sketch, tests, docs,
+# config. `override` because the repository root declares Apache-2.0/CC-BY-NC
+# for the other coursework and this subtree is MIT instead.
+[[annotations]]
+path = "**"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Vsevolod Kutsyn <vkutsyn@uw.edu>"
+SPDX-License-Identifier = "MIT"
+
+# Third-party papers and course handouts kept for reference; not ours to
+# relicense.
+[[annotations]]
+path = "docs/materials/**"
+precedence = "override"
+SPDX-FileCopyrightText = "respective copyright holders"
+SPDX-License-Identifier = "LicenseRef-third-party-reference"

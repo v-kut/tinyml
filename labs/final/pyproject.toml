@@ -1,0 +1,165 @@
+[project]
+name = "tinyml-racing"
+version = "0.1.0"
+description = "Reinforcement learning racing, deployed on Arduino Nano BLE Sense Rev2."
+requires-python = "~=3.14.0"
+
+dependencies = [
+  "gymnasium>=1.3.0",
+  "numba>=0.67.0",
+  "numpy>=2.5.2",
+  "onnx>=1.22.0",
+  "onnxruntime>=1.28.0",
+  "pygame-ce>=2.5.8",
+  "pyserial>=3.5",
+  "rich>=15.0.0",
+  "scipy>=1.18.0",
+  "stable-baselines3>=2.9.0",
+  "tensorboard>=2.21.0",
+  "torch>=2.13.0",
+]
+
+[project.scripts]
+tinyml-board = "tinyml_racing.deploy.board:main"
+tinyml-build = "tinyml_racing.deploy.build:main"
+tinyml-train = "tinyml_racing.ml.train:main"
+tinyml-watch = "tinyml_racing.watch:main"
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "ruff",
+  "ty>=0.0.71",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tinyml_racing"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# Everything, then a documented subtraction. New rules arrive switched on.
+select = ["ALL"]
+ignore = [
+  # Annotating every local helper and test fixture buys nothing here: the
+  # module boundaries that matter are annotated, and `ty` checks them.
+  "ANN",
+  # Missing-docstring rules. What is worth explaining is explained; a docstring
+  # on every private helper is noise, and D401's imperative mood fights the
+  # descriptive style the rest of the prose is written in.
+  "D1",
+  "D401",
+  # Formatter-owned or mutually exclusive with a rule kept below.
+  "COM812",
+  "D203",
+  "D213",
+  "ISC001",
+  # Multi-paragraph docstrings start with a summary line and continue; the
+  # blank line D205 wants would separate a sentence from its own clause.
+  "D205",
+  # Licensing lives in REUSE.toml, not in 56 file headers.
+  "CPY001",
+  # A simulator is made of magic numbers, and every one of them is either a
+  # named constant already or commented where it is used.
+  "PLR2004",
+  # Error messages are written to be read by whoever hit them, which means
+  # f-strings with the offending value in them, at the raise site.
+  "TRY003",
+  "EM101",
+  "EM102",
+  # Tests reach into the internals they are testing.
+  "SLF001",
+  # Imports stay executable: `TYPE_CHECKING` blocks buy startup time this
+  # project does not spend, at the cost of annotations that no longer resolve.
+  "TC001",
+  "TC002",
+  "TC003",
+  # Deferred imports are deliberate and commented: `torch`, `pyserial` and
+  # `pygame` must not be import-time costs of the CLIs that never touch them.
+  "PLC0415",
+  # The CLIs are the user interface; they print.
+  "T201",
+  # `tests/` is a test root, not a package.
+  "INP001",
+  # Booleans in signatures are keyword-only where it matters; the rest are
+  # flags on internal helpers.
+  "FBT",
+  # Arguments an interface requires but an implementation does not use.
+  "ARG",
+  # Composite assertions read better than two lines that must stay in sync.
+  "PT018",
+  # Configuration-heavy call sites, measured against nothing but taste.
+  "PLR0911",
+  "PLR0912",
+  "PLR0913",
+  "PLR0915",
+  "PLR0917",
+  "C901",
+  # Section banners in the tests name the functions under test, which reads as
+  # commented-out code to ERA001 and to nothing else.
+  "ERA001",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
+[tool.ty.environment]
+python = ".venv"
+python-version = "3.14"
+
+[tool.ty.src]
+include = ["tinyml_racing", "tests"]
+
+[tool.ty.terminal]
+output-format = "concise"
+
+# Every rule ty ships that is not already an error by default, promoted. The
+# list is explicit rather than a blanket setting so a new rule in a future
+# release shows up as a diff here instead of silently changing the gate.
+[tool.ty.rules]
+ambiguous-protocol-member = "error"
+blanket-ignore-comment = "error"
+deprecated = "error"
+division-by-zero = "error"
+experimental-syntax = "error"
+ignore-comment-unknown-rule = "error"
+ineffective-final = "error"
+invalid-enum-member-annotation = "error"
+invalid-ignore-comment = "error"
+invalid-legacy-positional-parameter = "error"
+invalid-named-tuple-override = "error"
+mismatched-type-name = "error"
+missing-override-decorator = "error"
+missing-type-argument = "error"
+possibly-missing-attribute = "error"
+possibly-missing-implicit-call = "error"
+possibly-missing-import = "error"
+possibly-missing-submodule = "error"
+possibly-unresolved-reference = "error"
+pydantic-discarded-extra-argument = "error"
+redundant-cast = "error"
+redundant-final-classvar = "error"
+subclass-of-dataclass-with-order = "error"
+undefined-reveal = "error"
+unresolved-global = "error"
+unsound-return-statement = "error"
+unsound-yield = "error"
+unsupported-base = "error"
+unsupported-dynamic-base = "error"
+unused-awaitable = "error"
+unused-ignore-comment = "error"
+unused-type-ignore-comment = "error"
+useless-overload-body = "error"
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
