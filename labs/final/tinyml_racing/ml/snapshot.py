@@ -244,6 +244,9 @@ class Snapshot:
     # weights are a function of raw observations. `deploy/export.py` refuses
     # that case rather than shipping an input transform it cannot reconstruct.
     norm: ObsNorm | None
+    # `61-64-64-2`, the actor's layer widths in `QuantModel.arch`'s format, so a
+    # trained policy and a deployed one are described the same way.
+    arch: str
 
     def normalize_obs(self, obs: np.ndarray) -> np.ndarray:
         """Show the policy what it was trained on, see `ObsNorm`."""
@@ -294,9 +297,16 @@ def load_snapshot(path: str | Path) -> Snapshot:
             epsilon=float(payload.epsilon or 1e-8),
         )
 
+    # The actor alone: the critic is discarded at export and never drives.
+    dims = (
+        int(np.prod(payload.observation_space.shape)),
+        *payload.policy_kwargs.pi_arch,
+        int(np.prod(payload.action_space.shape)),
+    )
     return Snapshot(
         num_timesteps=payload.num_timesteps,
         env_config=payload.env_config,
         policy=policy,
         norm=norm,
+        arch="-".join(str(d) for d in dims),
     )

@@ -28,7 +28,6 @@ from tinyml_racing.render.hud import (
     MiniMap,
     PanelLine,
     Readout,
-    _latency_row,
 )
 from tinyml_racing.render.viewer import TRAIL_POINTS, TRAIL_STEP_M, PygameViewer, Trail
 from tinyml_racing.sim.car import CarState
@@ -530,14 +529,15 @@ def test_a_compositor_resize_rebuilds_the_window_without_asking_for_a_size(sdl_d
 # --------------------------------------------------------------------------- #
 
 
-def _runner(name: str, detail: str, reward: float, laps: float, vx: float, **flags):
+def _runner(name: str, arch: str, detail: str, reward: float, laps: float, **flags):
     """A `Runner` with only the fields `hud_table` reads: the table is pure
     formatting, so it needs no environment.
     """
     return watch_mod.Runner(
-        policy=watch_mod.Policy(name, lambda env, obs: np.zeros(2), detail),
-        # A stand-in, not an env: `hud_table` reads `env.state` and nothing else.
-        env=cast("RacingEnv", SimpleNamespace(state=CarState(x=0.0, y=0.0, theta=0.0, vx=vx))),
+        policy=watch_mod.Policy(name, lambda env, obs: np.zeros(2), arch, detail),
+        # A stand-in, not an env: `hud_table` reads nothing off it, and `Runner`
+        # requires one.
+        env=cast("RacingEnv", SimpleNamespace(state=CarState(x=0.0, y=0.0, theta=0.0))),
         shade=(0, 0, 0),
         reward=reward,
         laps=laps,
@@ -546,9 +546,9 @@ def _runner(name: str, detail: str, reward: float, laps: float, vx: float, **fla
 
 
 TABLE_RUNNERS = [
-    _runner("expert", "pure pursuit", 1234.0, 2.5, 10.0),
-    _runner("pretrain", "clone of expert", -5.0, 0.0, 0.0, done=True),
-    _runner("int8", "quantized", 0.0, 12.25, 20.0, done=True, crashed=True),
+    _runner("expert", "pure pursuit", "privileged state", 1234.0, 2.5),
+    _runner("pretrain", "61-64-64-2", "clone of expert, 0 steps", -5.0, 0.0, done=True),
+    _runner("int8", "61-16-8-2", "int8 emulated on host", 0.0, 12.25, done=True, crashed=True),
 ]
 
 
@@ -586,51 +586,88 @@ def test_an_unmeasured_latency_is_falsy_rather_than_zero():
     assert _measured(0.0)
 
 
-def test_the_panel_reports_the_host_cost_and_only_the_board_adds_a_device_row():
-    """`infer` is wall clock around the driver's own call, for the board that is
-    the whole round trip, and `mcu` is the kernel the device reported inside it.
+def test_the_panel_reports_nothing_the_contender_table_already_carries():
+    """The per-driver numbers live in the table, once each. The viewer's own
+    readout is window state, so it cannot grow a second copy of `infer`/`mcu`.
     """
-    base = Readout(draw_ms=1.0, sim_hz=50.0, sim_dt=0.02, distance_m=0.0, zoom=1.0, follow=True)
-    assert _latency_row(base) is None
+    assert set(Readout._fields) == {
+        "draw_ms",
+        "sim_hz",
+        "sim_dt",
+        "distance_m",
+        "zoom",
+        "follow",
+    }
+    # And the table is not asked for a speed the panel already prints.
+    assert [title for title, _, _ in watch_mod._COLUMNS] == [
+        "policy",
+        "arch",
+        "reward",
+        "laps",
+        "infer ms",
+        "mcu us",
+    ]
 
-    host = _latency_row(base._replace(infer=_measured(0.20, 0.30)))
-    assert host is not None
-    assert "infer  0.25 ms" in host and "worst  0.30" in host and "mcu" not in host
 
-    board = _latency_row(base._replace(infer=_measured(7.1), device=_measured(0.523)))
-    assert board is not None
-    assert "infer  7.10 ms" in board and "mcu  523 us" in board
+def test_the_mcu_column_exists_only_when_a_driver_reports_a_device_time():
+    """Without a board every cell of it is a dash, which is width spent saying
+    nothing; the column comes back the moment one is in the field.
+    """
+    header = watch_mod.hud_table(TABLE_RUNNERS, 0)[0].text
+    assert "infer ms" in header and "mcu us" not in header
+
+    with_board = [*TABLE_RUNNERS, _runner("board", "61-16-8-2", "int8 on tty", 0.0, 0.0)]
+    with_board[-1].device.hit(0.5)
+    assert "mcu us" in watch_mod.hud_table(with_board, 0)[0].text
+
+
+def test_the_table_names_what_computes_each_action():
+    """`inference` says nothing; the actor's layer widths say which net is
+    driving, in the same format the deployed header records.
+    """
+    rows = [row.text for row in watch_mod.hud_table(TABLE_RUNNERS, 0)]
+    header, *body = rows[: 1 + len(TABLE_RUNNERS)]
+
+    arch_at = header.index("arch")
+    for row, runner in zip(body, TABLE_RUNNERS, strict=True):
+        arch = runner.policy.arch
+        assert row[arch_at : arch_at + len(arch)] == arch
+        # Left-aligned in its own column: the next column starts after a gap.
+        assert row[arch_at - 1] == " "
 
 
 def test_the_table_shows_a_latency_per_contender_and_dashes_what_was_not_measured():
-    """One column each, so a row says what its own driver costs: the emulator in
-    this process against the board over USB, side by side.
+    """One column each, mean and worst in the cell: a row says what its own
+    driver costs, the emulator in this process against the board over USB.
     """
     runners = [
-        _runner("int8", "host emulator", 0.0, 0.0, 0.0, infer=_measured(0.21)),
+        _runner("int8", "61-16-8-2", "host emulator", 0.0, 0.0, infer=_measured(0.21)),
         _runner(
             "board",
-            "on /dev/ttyACM0",
-            0.0,
+            "61-16-8-2",
+            "int8 on /dev/ttyACM0",
             0.0,
             0.0,
             infer=_measured(7.1, 7.3),
-            device=_measured(0.523),
+            device=_measured(0.523, 0.771),
         ),
-        _runner("expert", "pure pursuit", 0.0, 0.0, 0.0),
+        _runner("expert", "pure pursuit", "privileged state", 0.0, 0.0),
     ]
     rows = [row.text for row in watch_mod.hud_table(runners, 0)]
     header, emulator, board, expert = rows[0], rows[1], rows[2], rows[3]
 
-    infer_end = header.index("infer ms") + len("infer ms")
-    mcu_end = header.index("mcu us") + len("mcu us")
-    assert emulator[infer_end - 4 : infer_end] == "0.21"
-    assert board[infer_end - 4 : infer_end] == "7.20"
-    assert board[mcu_end - 3 : mcu_end] == "523"
+    def cell(row: str, label: str) -> str:
+        end = header.index(label) + len(label)
+        return row[:end].rsplit("  ", 1)[-1].strip()
+
+    assert cell(emulator, "infer ms") == "0.21/0.21"
+    # The mean is over the window, the worst is the single late step in it.
+    assert cell(board, "infer ms") == "7.20/7.30"
+    assert cell(board, "mcu us") == "647/771"
     # Only the board reports a device time; the rest run here.
-    assert emulator[mcu_end - 2 : mcu_end] == "--"
+    assert cell(emulator, "mcu us") == "--"
     # A driver that has not stepped yet has nothing to report either.
-    assert expert[infer_end - 2 : infer_end] == "--"
+    assert cell(expert, "infer ms") == "--"
 
 
 @pytest.mark.parametrize("focus", [0, 1, 2])
@@ -644,13 +681,13 @@ def test_hud_table_columns_line_up_under_names_of_different_lengths(focus):
     assert len(rows) == len(TABLE_RUNNERS) + 3
     name_at = header.index("policy")
     status_at = header.index("status")
-    right_edge = {label: header.index(label) + len(label) for label in ("reward", "laps", "km/h")}
+    right_edge = {label: header.index(label) + len(label) for label in ("reward", "laps")}
 
-    # km/h is m/s * 3.6, rounded to whole units; laps to three decimals.
+    # Reward to whole units, laps to three decimals.
     expected = [
-        {"reward": "1234", "laps": "2.500", "km/h": "36", "status": "on"},
-        {"reward": "-5", "laps": "0.000", "km/h": "0", "status": "out"},
-        {"reward": "0", "laps": "12.250", "km/h": "72", "status": "OFF"},
+        {"reward": "1234", "laps": "2.500", "status": "on"},
+        {"reward": "-5", "laps": "0.000", "status": "out"},
+        {"reward": "0", "laps": "12.250", "status": "OFF"},
     ]
     for row, runner, want in zip(body, TABLE_RUNNERS, expected, strict=True):
         assert row[name_at : name_at + len(runner.policy.name)] == runner.policy.name
@@ -681,7 +718,7 @@ def test_hud_table_marks_exactly_the_followed_runner(focus):
     ]
 
     followed = TABLE_RUNNERS[focus].policy
-    assert rows[-2].text == f"[tab] follow: {followed.name}, {followed.detail}"
+    assert rows[-2].text == f"[tab] {followed.name}: {followed.detail}"
     assert rows[-1].text == "[r]estart  [t]rack"
 
 
@@ -690,7 +727,7 @@ def test_hud_table_of_a_single_runner_still_marks_it():
     rows = watch_mod.hud_table(TABLE_RUNNERS[:1], 0)
     assert len(rows) == 4
     assert rows[1].text[0] == ">"
-    assert rows[-2].text.startswith("[tab] follow: expert")
+    assert rows[-2].text.startswith("[tab] expert:")
 
 
 # --------------------------------------------------------------------------- #
@@ -713,7 +750,6 @@ class _RecordingViewer(PygameViewer):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.hud_history: list[list[PanelLine]] = []
-        self.latencies: list[tuple[Latency | None, Latency | None]] = []
         self.observed = 0
         type(self).latest = self
 
@@ -743,11 +779,8 @@ class _RecordingViewer(PygameViewer):
         ghosts=(),
         trail=None,
         shade=None,
-        infer=None,
-        device=None,
     ) -> None:
         self.hud_history.append(list(hud_lines))
-        self.latencies.append((infer, device))
 
 
 class _SecondEpisodeError(Exception):
@@ -764,8 +797,8 @@ def test_max_steps_stops_the_loop_even_after_the_first_runner_is_out(monkeypatch
         return np.array([1.0, 1.0], dtype=np.float32)
 
     policies = [
-        watch_mod.Policy("crasher", full_lock, "full lock, full throttle"),
-        watch_mod.Policy("expert", pure_pursuit_teacher(), "pure pursuit"),
+        watch_mod.Policy("crasher", full_lock, "constant", "full lock, full throttle"),
+        watch_mod.Policy("expert", pure_pursuit_teacher(), "pure pursuit", "privileged state"),
     ]
 
     # `watch`'s outer loop restarts the episode forever; leave it from the first

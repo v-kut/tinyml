@@ -40,15 +40,6 @@ achievable draw rates are (control rate)/n.
 
 `infer ms` is wall clock around the driver's own call, so a host policy reports what the
 network costs in this process and the board reports the whole round trip, the number its
-loop pays. `mcu us` is the device's own figure for `tinyml_infer`, dashed for drivers with
-no device. Both are means over 60 steps, and the panel adds the window's worst, because a
-loop is late whenever one step is.
-
-## The window manager owns the geometry
-
-`open_window` calls `set_mode` once, then records `screen.get_size()`, because a tiling
-compositor answers the initial request with its own tile size: 925x1064 here against a
-900x900 request. Later changes arrive as SDL resize events and rebuild the size-derived
-caches against the existing surface. Calling `set_mode` again re-requests a geometry the
-compositor just chose; under niri that reads as the client wanting its own size, so
-`maximize-column` went 925 to 1858 and back, and maximize appeared broken.
+loop pays. `mcu us` is the device's own figure for `tinyml_infer`, and that column exists
+only when something in the field reports one. Each cell is `mean/worst` over the last 60
+steps.

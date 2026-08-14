@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import math
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
@@ -38,7 +37,11 @@ POLICIES = ("expert", "pretrain", "ppo", "student", "float32", "int8", "board")
 class Policy:
     name: str
     drive: Driver
-    # What it is, for the HUD: step count, architecture, port.
+    # What computes the action, for the table's own column: an actor's layer
+    # widths (`61-64-64-2`) or, for a driver that is not a network, what it is.
+    arch: str
+    # Where the driver came from, for the followed row: training steps, the
+    # numeric format it runs in, the port it is spoken to over.
     detail: str
     # Whatever the driver holds open. Only the board has one, and leaving a
     # serial port open on exit is how the next command fails to find it.
@@ -51,21 +54,27 @@ class Policy:
 
 def _snapshot_policy(name: str, path: Path, detail: str) -> Policy:
     snapshot = load_snapshot(path)
-    steps = f"{snapshot.num_timesteps:,} steps"
-    return Policy(name, snapshot_teacher(snapshot), f"{detail}, {steps}")
+    return Policy(
+        name,
+        snapshot_teacher(snapshot),
+        snapshot.arch,
+        f"{detail}, {snapshot.num_timesteps:,} steps, float32 on host",
+    )
 
 
 def resolve(name: str, run: Run, port: str | None) -> Policy:
     """One named driver, or a `FileNotFoundError` naming what is missing."""
     match name:
         case "expert":
-            return Policy(name, pure_pursuit_teacher(), "pure pursuit, privileged state")
+            return Policy(
+                name, pure_pursuit_teacher(), "pure pursuit", "privileged state, no network"
+            )
         case "pretrain":
             return _snapshot_policy(name, run.pretrain, "cloned expert")
         case "ppo":
             return _snapshot_policy(name, run.ppo, "reinforcement")
         case "student":
-            return _snapshot_policy(name, run.student, "distilled")
+            return _snapshot_policy(name, run.student, "distilled from ppo")
         case "float32" | "int8" | "board":
             # The deploy bundle. Imported here rather than at module scope so
             # watching a training run costs no onnxruntime and no serial port.
@@ -76,10 +85,15 @@ def resolve(name: str, run: Run, port: str | None) -> Policy:
             model = quantize_model(export)
             if name == "float32":
                 act = float_actor(export)
-                return Policy(name, lambda _env, obs: act(obs), f"{model.arch} float32, exported")
+                return Policy(
+                    name, lambda _env, obs: act(obs), model.arch, "exported actor, float32 on host"
+                )
             if name == "int8":
                 return Policy(
-                    name, lambda _env, obs: model.act(obs), f"{model.arch} int8, host emulator"
+                    name,
+                    lambda _env, obs: model.act(obs),
+                    model.arch,
+                    f"{model.activation}, int8 emulated on host",
                 )
 
             from tinyml_racing.deploy.board import Board
@@ -88,7 +102,8 @@ def resolve(name: str, run: Run, port: str | None) -> Policy:
             return Policy(
                 name,
                 lambda _env, obs: board.act(obs),
-                f"{model.arch} int8 on {board.port}",
+                model.arch,
+                f"int8 on {board.port}, {model.deployed_flash_bytes} B flash",
                 close=board.close,
                 device_us=lambda: board.last_infer_us,
             )
@@ -152,37 +167,63 @@ class Runner:
 
 # (title, width, cell); a negative width is left-aligned. One row of widths, so
 # the header cannot drift from the cells the way two format strings could.
-_COLUMNS: tuple[tuple[str, int, Callable[[Runner], str]], ...] = (
+type Column = tuple[str, int, Callable[[Runner], str]]
+
+
+def _infer_cell(r: Runner) -> str:
+    """`0.16/0.31`, the host's mean and worst per control step."""
+    return f"{r.infer.mean_ms:.2f}/{r.infer.worst_ms:.2f}" if r.infer else "--"
+
+
+def _device_cell(r: Runner) -> str:
+    """The same pair as the device reported it, us. Only the board fills it."""
+    if not r.device:
+        return "--"
+    return f"{1000 * r.device.mean_ms:.0f}/{1000 * r.device.worst_ms:.0f}"
+
+
+# No column repeats the panel above it: the followed car's speed, slip and
+# odometer are the viewer's own readout, and this table is what the panel
+# cannot say, one row per contender.
+_COLUMNS: tuple[Column, ...] = (
     ("policy", -9, lambda r: r.policy.name),
+    # Widest real value is `61-256-256-2`; `pure pursuit` is the same 12.
+    ("arch", -14, lambda r: r.policy.arch),
     ("reward", 9, lambda r: f"{r.reward:.0f}"),
     ("laps", 7, lambda r: f"{r.laps:.3f}"),
-    ("km/h", 7, lambda r: f"{3.6 * math.hypot(r.env.state.vx, r.env.state.vy):.0f}"),
-    ("infer ms", 9, lambda r: f"{r.infer.mean_ms:.2f}" if r.infer else "--"),
-    ("mcu us", 7, lambda r: f"{1000 * r.device.mean_ms:.0f}" if r.device else "--"),
+    # Mean and worst of the same window in one cell: a control loop is late
+    # whenever a single step is, and that is a second number, not a column.
+    ("infer ms", 12, _infer_cell),
+    ("mcu us", 11, _device_cell),
 )
 
 
-def _cells(values: Sequence[str]) -> str:
+def _columns(runners: Sequence[Runner]) -> tuple[Column, ...]:
+    """The columns this field needs. `mcu us` exists only when something in it
+    reports a device time: without a board it is a column of dashes.
+    """
+    if any(r.device for r in runners):
+        return _COLUMNS
+    return tuple(column for column in _COLUMNS if column[0] != "mcu us")
+
+
+def _cells(values: Sequence[str], columns: Sequence[Column]) -> str:
     return "".join(
         f"{v:<{-w}s}" if w < 0 else f"{v:>{w}s}"
-        for v, (_, w, _) in zip(values, _COLUMNS, strict=True)
+        for v, (_, w, _) in zip(values, columns, strict=True)
     )
 
 
 def hud_table(runners: Sequence[Runner], focus: int) -> list[PanelLine]:
-    """One row per contender in the order asked for, the followed one marked `>`.
-
-    `infer` is what the host paid per control step; `mcu` is what the device
-    reported for the kernel, so only the board fills it. Each row's shade is the
-    colour its car and trail are drawn in.
-    """
-    rows = [PanelLine(f"  {_cells([title for title, _, _ in _COLUMNS])}  status")]
+    """One row per contender in the order asked for, the followed one marked `>`."""
+    columns = _columns(runners)
+    rows = [PanelLine(f"  {_cells([title for title, _, _ in columns], columns)}  status")]
     for i, r in enumerate(runners):
         marker = ">" if i == focus else " "
-        cells = _cells([cell(r) for _, _, cell in _COLUMNS])
+        cells = _cells([cell(r) for _, _, cell in columns], columns)
         rows.append(PanelLine(f"{marker} {cells}  {r.status}", r.shade))
     lead = runners[focus]
-    rows.append(PanelLine(f"[tab] follow: {lead.policy.name}, {lead.policy.detail}", lead.shade))
+    rows.append(PanelLine(f"[tab] {lead.policy.name}: {lead.policy.detail}", lead.shade))
     rows.append(PanelLine("[r]estart  [t]rack"))
     return rows
 
@@ -287,8 +328,6 @@ def watch(
                             if i != focus
                         ],
                         hud_lines=hud_table(runners, focus),
-                        infer=lead.infer,
-                        device=lead.device,
                     )
                 if steps >= limit:
                     break
@@ -363,7 +402,7 @@ def main() -> None:
             raise SystemExit(f"none of {', '.join(wanted)} exist under {run.root}")
 
         for p in policies:
-            print(f"  {p.name:<9s} {p.detail}")
+            print(f"  {p.name:<9s} {p.arch:<14s} {p.detail}")
         # `watch` puts the same callbacks on its own stack before anything in
         # it can fail, so ownership is handed over rather than a port closed
         # twice. Nothing between here and the call can raise.

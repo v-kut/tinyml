@@ -99,7 +99,11 @@ class Latency:
 
 
 class Readout(NamedTuple):
-    """What the panel reports that `CarState` does not carry."""
+    """What the panel reports that `CarState` does not carry.
+
+    Nothing here is per-driver: a caller comparing policies owns that table and
+    passes it as panel lines, so no number is drawn twice.
+    """
 
     draw_ms: float
     sim_hz: float
@@ -107,10 +111,6 @@ class Readout(NamedTuple):
     distance_m: float
     zoom: float
     follow: bool
-    # The followed driver's cost per control step: what the host paid to get an
-    # action, and what the device reported for the kernel alone.
-    infer: Latency | None = None
-    device: Latency | None = None
 
 
 def _bar(surf, x, y, h, frac, color, bipolar=False, marker=None) -> None:
@@ -165,30 +165,14 @@ class PanelLine(NamedTuple):
     shade: tuple[int, int, int] | None = None
 
 
-def _latency_row(readout: Readout) -> str | None:
-    """The followed driver's inference cost, host first, device if it has one.
-
-    `infer` is wall clock around the driver's own call, so for the board it is
-    the whole USB round trip and `device` is the kernel inside it.
-    """
-    if not readout.infer:
-        return None
-    text = f"infer {readout.infer.mean_ms:5.2f} ms  worst {readout.infer.worst_ms:5.2f}"
-    if readout.device:
-        text += f"  mcu {1000 * readout.device.mean_ms:4.0f} us"
-    return text
-
-
 def draw_panel(window: Window, state: CarState, extra_lines, readout: Readout, hints: bool) -> None:
-    """Two lines of state, the driver's latency, the caller's lines, then the key
-    hints, dimmed.
+    """Two lines of state, the caller's lines, then the key hints, dimmed.
 
     The gutter is reserved for every row once one wants it, or columns step.
     """
     speed = 3.6 * math.hypot(state.vx, state.vy)
     slip = math.degrees(math.atan2(state.vy, max(state.vx, 0.1)))
     rt = readout.sim_hz * readout.sim_dt
-    latency = _latency_row(readout)
     rows = [
         PanelLine(
             f"{speed:5.1f} km/h  slip {slip:+5.1f}\u00b0  {readout.distance_m / 1000:5.2f} km"
@@ -197,7 +181,6 @@ def draw_panel(window: Window, state: CarState, extra_lines, readout: Readout, h
             f"draw {readout.draw_ms:4.1f} ms  sim {readout.sim_hz:5.1f} Hz {rt:.2f}x  "
             f"{readout.zoom:.1f}x {'[F]' if readout.follow else '[M]'}"
         ),
-        *([PanelLine(latency)] if latency else []),
         *(line if isinstance(line, PanelLine) else PanelLine(str(line)) for line in extra_lines),
     ]
     surfaces = [(window.small_font.render(r.text, True, HUD_TEXT), r.shade) for r in rows]

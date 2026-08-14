@@ -27,8 +27,19 @@ the control loop.
 sized by the window, rebuilt whole on resize against the surface SDL already has.
 `draw` reads state only: everything that accumulates lives in `observe`, so a dropped
 frame cannot change what the run recorded, and latency is timed by whoever owns the
-control loop rather than by the renderer. `viewer.pump()` is the whole input contract,
-returning pygame key names for `watch.py` to bind.
+control loop rather than by the renderer. `Readout` is window state alone (draw rate,
+simulation rate, odometer, zoom); everything per-driver reaches the panel as
+`hud_table`'s rows, so no number is drawn twice. `viewer.pump()` is the whole input
+contract, returning pygame key names for `watch.py` to bind.
+
+## The contender table
+
+`policy`, `arch`, `reward`, `laps`, `infer ms`, and `mcu us` only when something in the
+field reports a device time. `arch` is what computes the action: an actor's layer widths
+in `QuantModel.arch`'s format (`61-16-8-2`, from `Snapshot.arch` for a trained policy)
+or, for the expert, `pure pursuit`. The two latency columns carry `mean/worst` over the
+last 60 steps in one cell, dashed for a driver that has not been measured. Under the
+table, the followed driver's provenance: training steps, numeric format, port.
 
 ## Keys
 
@@ -44,10 +55,11 @@ instead of failing.
 zoom including the clamp order, the minimap fit against the panel it must stay
 inside, the frame gate, `Trail` distance sampling and its append-only contract,
 viewer episode state (what `begin_episode` drops and what survives a same-seed
-`set_track`), pygame teardown, `hud_table` column alignment and the followed-row
-marker, the latency readout (sliding mean and worst, an unmeasured meter falsy rather
-than 0.00 ms, `mcu` named only for a driver with a device, dashes for what could not
-be measured), and `watch --max-steps` driven through a recording viewer.
+`set_track`), pygame teardown, `hud_table` column alignment, the `arch` column, the
+conditional `mcu us` column and the followed-row marker, the latency meters (sliding
+mean and worst, an unmeasured meter falsy rather than 0.00 ms, dashes for what could not
+be measured), that `Readout` carries nothing the table already does, and
+`watch --max-steps` driven through a recording viewer.
 
 Not covered: no test draws pixels. `world.py` and `hud.py` are exercised only by
 `RacingEnv(render_mode="rgb_array")` in `../../tests/test_env_contract.py`, which

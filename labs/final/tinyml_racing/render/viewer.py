@@ -20,7 +20,6 @@ import pygame
 from tinyml_racing.render.camera import Camera, clamp_zoom
 from tinyml_racing.render.hud import (
     DRAW_SMOOTH,
-    Latency,
     MiniMap,
     RateMeter,
     Readout,
@@ -315,14 +314,10 @@ class PygameViewer:
         ghosts: Sequence[Ghost] = (),
         trail: Sequence[np.ndarray] | None = None,
         shade: tuple[int, int, int] | None = None,
-        infer: Latency | None = None,
-        device: Latency | None = None,
     ) -> None:
         """One frame. Reads state only, accumulators live in `observe`.
 
-        `state` is the followed car; `ghosts` are the rest of the field. `infer`
-        and `device` are that car's driver latencies, measured by the caller
-        that owns the control loop.
+        `state` is the followed car; `ghosts` are the rest of the field.
         """
         if (scan is None) != (lidar is None):
             raise ValueError("draw() needs `scan` and `lidar` together: the bearings are warped")
@@ -349,7 +344,7 @@ class PygameViewer:
         draw_car(window, camera, state, self.params, shade)
         if action is not None:
             draw_steer_arrow(window, camera, state, self.params, action)
-        draw_panel(window, state, hud_lines, self._readout(infer, device), self.interactive)
+        draw_panel(window, state, hud_lines, self._readout(), self.interactive)
         draw_gauges(window, state, action, self.params)
         self._minimap.draw(window, camera, scene, state)
         pygame.display.flip()
@@ -358,7 +353,7 @@ class PygameViewer:
         ms = 1000.0 * (time.perf_counter() - started)
         self._draw_ms += DRAW_SMOOTH * (ms - self._draw_ms)
 
-    def _readout(self, infer: Latency | None = None, device: Latency | None = None) -> Readout:
+    def _readout(self) -> Readout:
         return Readout(
             draw_ms=self._draw_ms,
             sim_hz=self._sim_rate.hz,
@@ -366,8 +361,6 @@ class PygameViewer:
             distance_m=self._distance_traveled,
             zoom=self._camera.zoom,
             follow=self.follow_car,
-            infer=infer,
-            device=device,
         )
 
     def frame_rgb(self) -> np.ndarray:
