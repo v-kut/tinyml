@@ -1,4 +1,4 @@
-"""Pre-generated track cache. Building one track costs ~12 ms (an analytically sampled
+"""Pre-generated track cache. Building one track costs ~35 ms (an analytically sampled
 corner sequence with its offset walls, plus the racing-line solve) against ~0.05 ms for
 a simulation step, so generating a layout per `reset()` spent most of the wall clock on
 geometry, worst when the car crashed early. A pool generated lazily per worker keeps

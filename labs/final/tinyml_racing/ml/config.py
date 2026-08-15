@@ -65,7 +65,7 @@ class RacingEnvConfig:
     n_tracks: int = 64
     track_seed_range: tuple[int, int] = TRAIN_SEED_RANGE
     fixed_track_seed: Annotated[int | None, "pin every episode to one layout (debug)"] = None
-    # Generator tunables, owned by `sim/track.py` for the same reason `lidar` is.
+    # Generator tunables, owned by `sim/track/` for the same reason `lidar` is.
     track: TrackConfig = field(default_factory=TrackConfig)
 
     # Dimensionless: progress is a fraction of a flat-out step's distance and the

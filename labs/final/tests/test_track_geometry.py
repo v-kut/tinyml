@@ -10,6 +10,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from scipy.spatial import ConvexHull
 
 from tinyml_racing.sim.car import CarParams
 from tinyml_racing.sim.geometry import (
@@ -23,11 +24,11 @@ from tinyml_racing.sim.lidar import ray_angles
 from tinyml_racing.sim.racing_line import compute_racing_line
 from tinyml_racing.sim.track import (
     TrackConfig,
-    _signed_area,
     default_corner_speed_radius,
     generate_track,
     min_steerable_corner_radius,
 )
+from tinyml_racing.sim.track.outline import _signed_area
 
 
 @pytest.fixture(scope="module", params=(0, 7, 42))
@@ -164,6 +165,36 @@ def test_generation_is_deterministic_and_honours_the_sample_grid():
     assert generate_track(seed=12).length != a.length
     assert generate_track(3, TrackConfig(sample_spacing=0.8)).ds == pytest.approx(0.8, rel=0.05)
     assert generate_track(3, TrackConfig(n_samples=512)).centerline.shape == (512, 2)
+
+
+def test_the_lap_reaches_inside_its_own_ring_and_turns_both_ways():
+    """The shape contract: hooks and chicanes are in the layout, not just in the config.
+
+    A convex outline filleted into a ring passes every other test in this file and
+    is not a circuit: it turns one way for a whole lap and never enters the infield.
+    The 18 F1 layouts of `TUMFTM/racetrack-database` spend 0-45% of a lap more than
+    120 m inside their own convex hull and integrate 3.2-5.9 laps' worth of absolute
+    turning; this generator with `n_hooks=(0, 0), n_chicanes=(0, 0)` manages 1.74
+    (200 seeds, 1.00-2.23) and with them 3.87 (2.58-5.78).
+
+    So the floor sits between the two populations rather than at the corpus median:
+    it fails the moment jogs stop reaching the outline, and tolerates the draw.
+    """
+    for seed in range(12):
+        track = generate_track(seed)
+        sweep = 2.0 * np.arccos(np.clip(track.walls.arc_cos_half, -1.0, 1.0))
+        turning = float(np.abs(sweep).sum() / (2.0 * np.pi))
+        assert 2.4 <= turning <= 6.5, f"seed {seed} turns {turning:.2f} laps' worth"
+
+        hull = ConvexHull(track.centerline)
+        # Signed distance inside every facet of the hull; positive is inside it.
+        inside = -(track.centerline @ hull.equations[:, :2].T + hull.equations[:, 2])
+        assert inside.min(axis=1).max() > 100.0, f"seed {seed} never leaves its perimeter"
+        # Corner density, what makes a lap read as a circuit and not as a slalom.
+        # Counted per arc primitive, where the corpus figure of 2.0-4.4 counts runs
+        # of a smoothed curvature and merges the pairs a jog is made of.
+        per_km = len(track.walls.arc_r) / (track.length / 1000.0)
+        assert 2.0 <= per_km <= 8.0, f"seed {seed} has {per_km:.1f} corners per km"
 
 
 def test_unsatisfiable_request_raises_rather_than_returning_junk():
