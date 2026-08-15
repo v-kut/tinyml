@@ -153,6 +153,18 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
                 )
         return self.pool
 
+    def warm_pool(self) -> int:
+        """Generate every layout in this env's pool, returning how many there are.
+
+        For the caller that wants the ~29 ms per layout spent before the first
+        rollout rather than on a vectorized step's barrier, see
+        `rl.ppo.warm_track_pools`.
+        """
+        pool = self._ensure_pool()
+        for seed in pool.seeds:
+            pool.get(seed)
+        return len(pool.seeds)
+
     def _cross_track_potential(self, cross: float) -> float:
         """`Phi` for the shaping term: 0 on the racing line, `-w` at the wall.
 
@@ -194,7 +206,12 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
             blocks.append(np.asarray(self._crosses, dtype=np.float32))
 
         obs = np.concatenate(blocks, dtype=np.float32)
-        return np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
+        # Tested rather than rewritten: `nan_to_num` rebuilds all of `obs_dim` every
+        # step (4.4 us of a 45 us step) to repair a numerical fault that only a bug
+        # upstream produces, where the test costs a fraction of that.
+        if not np.isfinite(obs).all():
+            np.nan_to_num(obs, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        return obs
 
     @override
     def reset(self, *, seed=None, options=None):
@@ -241,11 +258,13 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
 
     @override
     def step(self, action):
-        action = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)
+        # Clamped as scalars: both channels are read as floats from here on, and the
+        # array round trip cost ~2 us of a ~45 us step for nothing.
+        steer = min(max(float(action[0]), -1.0), 1.0)
         # The second channel is a normalized drive/brake demand, not an acceleration:
         # what it achieves depends on the motor curve and the grip cornering spent.
-        steer_cmd = float(action[0]) * self.params.max_steer
-        throttle = float(action[1])
+        throttle = min(max(float(action[1]), -1.0), 1.0)
+        steer_cmd = steer * self.params.max_steer
         # Recorded for the observation this step returns. `proprioception` carries
         # the *achieved* steering angle, so nothing else in the observation says
         # the car is braking.
@@ -334,11 +353,13 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
             # `|a| > 0.99` rather than true clipping: SB3 clips first, so saturation
             # only shows as a policy living on the rails, where int8 has the least
             # resolution to spare.
-            "action_rail": float(np.mean(np.abs(action) > 0.99)),
-            "action_steer": abs(float(action[0])),
+            # Scalar arithmetic, not `np.mean(np.abs(action) > 0.99)`: that one
+            # diagnostic was 3 us of a 45 us step, 7% of the simulator.
+            "action_rail": 0.5 * ((abs(steer) > 0.99) + (abs(throttle) > 0.99)),
+            "action_steer": abs(steer),
             # Magnitude, like the steering channel: signed, a policy alternating
             # flat-out and hard braking would average to a coast.
-            "action_throttle_abs": abs(float(action[1])),
+            "action_throttle_abs": abs(throttle),
         }
         return self._observe(), reward, terminated, truncated, info
 

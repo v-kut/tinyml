@@ -17,7 +17,7 @@ Nothing here imports `deploy/`, and the viewer is imported lazily and only for
 | `rollout.py`            | one deterministic rollout implementation: `Frame`, `iter_rollout`, `closed_loop`, `eval_seeds`                                                                                                                                       |
 | `snapshot.py`           | the train -> deploy file format: `ObsNorm`, `SnapshotPayload`, `save_snapshot`, `publish_snapshot`, `load_snapshot`, `Snapshot.act`                                                                                                  |
 | `train.py`              | the `tinyml-train` CLI: stage orchestration, `publish`, `score`, `link_latest`                                                                                                                                                       |
-| `rl/ppo.py`             | the PPO stage: vec-env construction, worker seeding, `VecNormalize` seeding, reward clipping, pinned evaluation episodes, the warm start                                                                                             |
+| `rl/ppo.py`             | the PPO stage: vec-env construction, worker seeding, `VecNormalize` seeding, reward clipping, pinned evaluation episodes, the warm start, `PhasedPPO` (one torch thread to collect, all of them to update) and `warm_track_pools`    |
 | `rl/callbacks.py`       | `TrainingMetricsCallback`, `PolicySnapshotCallback`, `BestSnapshotCallback`, `ProgressCallback`, `RotatingCheckpointCallback`, `QuietEvalCallback`                                                                                   |
 | `regression/dataset.py` | teacher rollouts: `pure_pursuit_teacher`, `snapshot_teacher`, `Dataset`, `collect`                                                                                                                                                   |
 | `regression/fit.py`     | the supervised fit: `build_policy`, the episode-level split, `fit_policy`, `FitResult`                                                                                                                                               |
@@ -68,4 +68,4 @@ noise path statistically.
 
 Decisions and measurements:
 [docs/findings/observation-design.md](../../docs/findings/observation-design.md),
-[docs/findings/training-stages.md](../../docs/findings/training-stages.md).
+[docs/findings/training-stages.md](../../docs/findings/training-stages.md),

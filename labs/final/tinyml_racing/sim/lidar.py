@@ -100,12 +100,16 @@ def cast_lidar(state, track, cfg: LidarConfig, rng: np.random.Generator) -> np.n
     world_angles = np.float64(state.theta) + cfg.angles
     directions = np.stack([np.cos(world_angles), np.sin(world_angles)], axis=-1)
 
-    reading = track.walls.ray_distances(origin, directions, cfg.max_range) / cfg.max_range
+    # In place from here: `ray_distances` hands back an array it just allocated, and
+    # the noise, dropout and clip chain used to leave four temporaries per sweep.
+    reading = track.walls.ray_distances(origin, directions, cfg.max_range)
+    reading /= cfg.max_range
     if cfg.noise_std > 0.0:
-        reading = reading + rng.normal(0.0, cfg.noise_std, size=reading.shape)
+        reading += rng.normal(0.0, cfg.noise_std, size=reading.shape)
     if cfg.dropout_prob > 0.0:
         # A dropped return reads as "nothing out there", which is what a real
         # detector reports when the echo is too weak, not as zero, which
         # would read as a wall against the bumper.
-        reading = np.where(rng.random(reading.shape) < cfg.dropout_prob, 1.0, reading)
-    return np.clip(reading, 0.0, 1.0).astype(np.float32)
+        np.copyto(reading, 1.0, where=rng.random(reading.shape) < cfg.dropout_prob)
+    np.clip(reading, 0.0, 1.0, out=reading)
+    return reading.astype(np.float32)

@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import logging
 import math
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import override
@@ -21,7 +22,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, EveryNTimesteps
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.running_mean_std import RunningMeanStd
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnv, VecNormalize
 
 from tinyml_racing import progress
 from tinyml_racing.ml.config import CLIP_OBS, RacingEnvConfig, TrainConfig
@@ -84,6 +85,7 @@ def build_train_env(env_cfg: RacingEnvConfig, train_cfg: TrainConfig, gamma: flo
     # Subprocesses only pay off once there is real work to parallelize;
     # a single env in its own process just adds IPC latency per step.
     venv = SubprocVecEnv(factories) if train_cfg.n_envs > 1 else DummyVecEnv(factories)
+    warm_track_pools(venv)
     return VecNormalize(
         venv,
         norm_obs=True,
@@ -93,6 +95,15 @@ def build_train_env(env_cfg: RacingEnvConfig, train_cfg: TrainConfig, gamma: flo
         # return, so a mismatch scales rewards against an unused horizon.
         gamma=gamma,
         clip_reward=reward_clip(),
+    )
+
+
+def warm_track_pools(venv: VecEnv) -> None:
+    """Generate every worker's layouts before the first rollout."""
+    started = time.perf_counter()
+    tracks = sum(venv.env_method("warm_pool"))
+    logger.info(
+        "track pools: %d layouts generated in %.1f s", tracks, time.perf_counter() - started
     )
 
 
@@ -193,6 +204,23 @@ def seed_normalization(venv: VecNormalize, warm: WarmStart) -> None:
     ret_rms.count = n
 
 
+class PhasedPPO(PPO):
+    """PPO with the thread count each of its two phases actually wants."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # Whatever torch chose for this machine, which is what the update keeps.
+        self._update_threads = torch.get_num_threads()
+
+    @override
+    def collect_rollouts(self, *args, **kwargs):
+        torch.set_num_threads(1)
+        try:
+            return super().collect_rollouts(*args, **kwargs)
+        finally:
+            torch.set_num_threads(self._update_threads)
+
+
 def train_ppo(
     run: Run,
     env_cfg: RacingEnvConfig,
@@ -224,7 +252,7 @@ def train_ppo(
         env_cfg.off_track_seconds,
         train_env.clip_reward,
     )
-    model = PPO(
+    model = PhasedPPO(
         "MlpPolicy",
         train_env,
         **ppo_kwargs,
