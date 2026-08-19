@@ -1,20 +1,31 @@
+<p align="center">
+  <img src="assets/spacium.gif" alt="Spacium" width="420">
+</p>
+
 # Spacium
 
-A LiDAR to (steering, throttle) driving policy trained by PPO in simulation, quantized to int8, compiled into a C header, and run on an Arduino Nano 33 BLE. The host is the car (track, physics, LiDAR, rendering), the board is the driver, one USB round trip per control step.
+A TinyML project combining regression and reinforcement learning (PPO) to race a car
+around a track, with support for deployment on an Arduino Nano 33 BLE Rev.2.
 
 ## Setup
+
+1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
+2. Install [`arduino-cli`](https://arduino.github.io/arduino-cli/latest/installation/)
 
 ```bash
 uv sync
 arduino-cli core install arduino:mbed_nano
 ```
 
-`tinyml-build` compiles the sketch with the system `arm-none-eabi-g++` and refuses to
-build without one, because the kernel's DSP path uses ACLE intrinsics the mbed core's
-gcc 7.2 lacks. Install your distribution's toolchain. The build probes it by compiling those intrinsics, so a toolchain that is too old fails.
+3. Install `arm-none-eabi-g++`
 
-Hardware is optional: everything except `--flash`, `tinyml-board` and
-`--policy board` runs on the host alone.
+> [!IMPORTANT]
+> `tinyml-build` compiles the sketch with the system `arm-none-eabi-g++` rather than the
+> one bundled with Arduino's mbed core, and it refuses to build if that toolchain is
+> missing. The reason is the DSP path in the kernel: it uses ACLE intrinsics that the
+> core's gcc 7.2 does not implement. Install the toolchain from your distribution's
+> package manager. The build probes the compiler by actually compiling those intrinsics,
+> so a toolchain that is present but too old still fails, and it tells you so up front.
 
 ## Workflow
 
@@ -25,16 +36,12 @@ uv run tinyml-board                            # board vs host, frame by frame
 uv run tinyml-watch --policy expert ppo int8 board
 ```
 
-| command        | does                                                               |
-| -------------- | ------------------------------------------------------------------ |
-| `tinyml-train` | clone, PPO, distill into one run directory                         |
-| `tinyml-build` | export, quantize, codegen, ONNX, evaluate, report, sketch, compile |
-| `tinyml-board` | replay the exported reference frames through hardware and diff     |
-| `tinyml-watch` | several policies driving in one window                             |
-
-Each command takes the run implicitly: `data/runs/latest`, the symlink `tinyml-train`
-repoints when a run starts. Training and building at once resolves the unfinished
-run, so pass `--run-dir` (or `run_dir`) when both are live.
+| command        | does                                                      |
+| -------------- | --------------------------------------------------------- |
+| `tinyml-train` | train the model                                           |
+| `tinyml-build` | export, quantize, evaluate, compile                       |
+| `tinyml-board` | replay the exported reference frames on the Arduino board |
+| `tinyml-watch` | watch the models drive in a simple pygame world           |
 
 ## Run directory
 
@@ -49,21 +56,20 @@ data/runs/<run>/
 
 ## Layout
 
-Each package has a README: what every file owns, the
-invariants it holds, what its tests pin. Why the code is what it is, with the
-measurements, lives in [`docs/findings/`](docs/README.md#findings).
+Each package has a README describing how to work with it. Why the code is what it is, with
+the measurements, lives in [`docs/findings/`](docs/findings/).
 
-| path                                                      | what it is                                                                 |
-| --------------------------------------------------------- | -------------------------------------------------------------------------- |
-| [`tinyml_racing/sim/`](tinyml_racing/sim/README.md)       | track generation, wall geometry, vehicle model, LiDAR, pure-pursuit expert |
-| [`tinyml_racing/ml/`](tinyml_racing/ml/README.md)         | Gymnasium env, config tree, the three training stages, snapshot handoff    |
-| [`tinyml_racing/deploy/`](tinyml_racing/deploy/README.md) | export, quantize, codegen/ONNX, evaluate, manifest, board                  |
-| [`tinyml_racing/render/`](tinyml_racing/render/README.md) | pygame viewer and the `tinyml-watch` front end                             |
-| [`tinyml_racing/utils.py`](tinyml_racing/utils.py)        | run-directory layout (`Run`) and logging                                   |
-| [`tinyml_racing/progress.py`](tinyml_racing/progress.py)  | the live stage display every CLI reports through, and the `s` skip key     |
-| [`arduino/deploy/`](arduino/deploy/README.md)             | the sketch: dispatch loop, wire protocol, int8 kernel, generated weights   |
-| [`tests/`](tests/README.md)                               | including a C harness that compiles the generated kernel                   |
-| [`docs/`](docs/README.md)                                 | findings, the proposal, the report, background reading                     |
+| path                                                      | contains                                                    |
+| --------------------------------------------------------- | ----------------------------------------------------------- |
+| [`tinyml_racing/sim/`](tinyml_racing/sim/README.md)       | track generation, physics model, LiDAR, pure-pursuit expert |
+| [`tinyml_racing/ml/`](tinyml_racing/ml/README.md)         | Gymnasium env, configs, training, snapshots                 |
+| [`tinyml_racing/deploy/`](tinyml_racing/deploy/README.md) | export, quantize, codegen                                   |
+| [`tinyml_racing/render/`](tinyml_racing/render/README.md) | pygame viewer and `tinyml-watch`                            |
+| [`tinyml_racing/utils.py`](tinyml_racing/utils.py)        | run-directory layout and logging                            |
+| [`tinyml_racing/progress.py`](tinyml_racing/progress.py)  | progress bar                                                |
+| [`arduino/deploy/`](arduino/deploy/README.md)             | the Arduino sketch                                          |
+| [`tests/`](tests/README.md)                               | tests                                                       |
+| [`docs/`](docs/README.md)                                 | findings, proposal, report, background reading              |
 
 ## Checks
 

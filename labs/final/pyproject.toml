@@ -26,11 +26,7 @@ tinyml-train = "tinyml_racing.ml.train:main"
 tinyml-watch = "tinyml_racing.watch:main"
 
 [dependency-groups]
-dev = [
-  "pytest",
-  "ruff",
-  "ty>=0.0.71",
-]
+dev = ["pytest", "ruff", "torch-preflight", "ty>=0.0.71"]
 
 [build-system]
 requires = ["hatchling"]
