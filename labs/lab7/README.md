@@ -21,6 +21,55 @@ header-includes:
 
 See submission files in [./submission](./submission) folder.
 
+# Part I: Edge Impulse
+
+Public project: <https://studio.edgeimpulse.com/public/1091500/latest> (_Motion Classification for Transport_, id 1091500).
+
+### Data collection
+
+20 `idle` samples (board flat and still) and 20 `lift` samples (board in hand, repeated
+lift/lower), 10 s each, inertial sensor at 62.5 Hz over 6 axes. Rebalanced into 33 training
+/ 7 test samples.
+
+### Impulse
+
+![Impulse: 2000 ms window @ 62.5 Hz → spectral analysis → classification.](assets/part1/create_impulse.png)
+
+![Spectral features for the six IMU axes.](assets/part1/spectral_features.png)
+
+Time-series input, 2000 ms window, 500 ms increase (561 windows), spectral analysis on all
+six axes (66 features), Keras classifier with 2 classes.
+
+### Training
+
+![Network settings and validation results: 85.8 %.](assets/part1/classifier.png)
+
+`66 → Dense(20) → Dense(10) → Dense(2)`, 30 cycles, lr 0.0005, 20 % validation split, int8.
+Validation accuracy 85.8 % for both float32 and int8, loss 0.36.
+
+### Test set
+
+![Model testing: 98.32 %.](assets/part1/model_testing.png)
+
+98.32 % on the 7 held-out samples: `idle` 100 %, `lift` 97.1 %, AUC 0.99, F1 0.98.
+
+### Build
+
+EON Compiler, int8, Nano 33 BLE Sense: 304 048 B flash (30 %), 58 848 B SRAM (22 %),
+DSP 33 ms + inference 0.63 ms per window. Arduino library and flashable firmware are in
+[./submission/part1](./submission/part1).
+
+### On-device test
+
+![Serial output of `edge-impulse-run-impulse` on the flashed board.](assets/part1/inference_serial.png)
+
+`lift` wins while the board is being moved (0.996, then 0.723 as the motion stops) and
+`idle` wins once it is flat and still (0.754). Both states are identified correctly, with
+one window (2 s) of lag on the switch. Full log in
+[`submission/part1/serial_inference_log.txt`](submission/part1/serial_inference_log.txt).
+
+# Part II: Tiny Ensemble Learning
+
 ## Question 1: Model architecture and ensemble flow
 
 Each sample is a 100-time-step window of 6 IMU channels flattened row-major into $100 \times 6 = 600$ input neurons. The same window is fed to three branches that differ only in the input scaling applied to the raw signal: raw (unscaled, m/s$^2$ and deg/s), standard-scaled (`StandardScaler`, per-channel zero mean / unit variance) and min-max-scaled (`MinMaxScaler`, per-channel to $[0,1]$).
