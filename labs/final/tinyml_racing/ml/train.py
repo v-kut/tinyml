@@ -1,8 +1,6 @@
 """Training entry point: clone the pure-pursuit expert, optimize that policy with
-PPO against the simulator's reward, then distill it into the smaller student that
-ships. All three stages run by default and only the PPO one is required;
-everything lands under `<runs_root>/<run_name>/`. See
-`tinyml_racing/ml/README.md` for stage contracts.
+PPO against the simulator's reward, then distill it into the smaller student.
+All three stages run by default but only PPO is required.
 """
 
 from __future__ import annotations
@@ -248,11 +246,12 @@ def train(env_cfg: RacingEnvConfig, train_cfg: TrainConfig) -> Run:
         # `snapshot.pt` (the file `deploy/` reads) with a behaviour-cloned
         # copy that is strictly worse than the policy it copied.
         if cfg.distill_samples > 0:
-            if tuple(cfg.student_arch) == tuple(train_cfg.pi_arch):
+            student_arch = tuple(cfg.student_arch)
+            if student_arch == tuple(train_cfg.pi_arch):
                 logger.info(
                     "skipping distillation: student_arch %s is already pi_arch, "
                     "so PPO's own policy is what ships",
-                    tuple(cfg.student_arch),
+                    student_arch,
                 )
             else:
                 distill(run, env_cfg, train_cfg)

@@ -70,8 +70,7 @@ so nothing in the reward ends the episode, and a parked car costs the full budge
 ## The live display and the `s` key
 
 Each stage is one line updated in place. `s` finishes the current stage, which keeps what
-it produced, publishes, scores and hands over, so a skipped PPO run still exports and exits
-0. A keypress rather than a signal because Ctrl-\ goes to the whole process group, and
+it produced, publishes, scores and hands over, so a skipped PPO run still exports and exits 0. A keypress rather than a signal because Ctrl-\ goes to the whole process group, and
 PPO's group is `n_envs` workers with no handler for it. `cbreak` leaves ISIG alone, and the
 mechanism is a no-op when stdin is not a terminal.
 

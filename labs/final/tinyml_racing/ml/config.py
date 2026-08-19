@@ -15,8 +15,8 @@ from tinyml_racing.sim.lidar import LidarConfig
 from tinyml_racing.sim.track import TrackConfig
 from tinyml_racing.utils import RUNS_ROOT
 
-# Disjoint by construction rather than by convention: a policy that memorized
-# its training layouts would otherwise look perfect on evaluation.
+# Disjoint by construction: a policy that memorized its training layouts would
+# otherwise look perfect on evaluation.
 TRAIN_SEED_RANGE: tuple[int, int] = (0, 2_000_000_000)
 EVAL_SEED_RANGE: tuple[int, int] = (2_000_000_000, 2**31 - 1)
 
@@ -27,11 +27,7 @@ CLIP_OBS: float = 10.0
 
 
 def _floor(cfg: object, minimum: float, counts: str, *names: str) -> None:
-    """Raise on the first field of `cfg` below `minimum`, naming what it counts.
-
-    Every validation here is a count with a floor, so it is one function rather
-    than a block per field; `counts` is what makes the message say why.
-    """
+    """Raise on the first field of `cfg` below `minimum`, naming what it counts."""
     for name in names:
         value = getattr(cfg, name)
         if value < minimum:
@@ -46,22 +42,21 @@ class RacingEnvConfig:
     config to pin the layout mid-run.
     """
 
-    # Owned by `sim/lidar.py`, nested rather than flattened, so there is no second
-    # set of defaults to disagree with that module.
+    # Nested rather than flattened, so `sim/lidar.py` stays the only set of defaults.
     lidar: LidarConfig = field(default_factory=LidarConfig)
     # Seconds, not steps: a step count is a different fraction of a lap the moment
     # the control rate moves. Several laps, since the longest layout is 2400 m,
     # ~70 s at a pessimistic 35 m/s.
     max_episode_seconds: float = 200.0
-    # Explicit override in steps, for tests and for reproducing a `config.json`
-    # recorded before the budget became a duration.
+    # For tests, and for reproducing a `config.json` recorded before the budget
+    # became a duration.
     max_episode_steps: Annotated[int | None, "a step count, overriding the duration above"] = None
-    # A car going nowhere is truncated after this instead of costing the full
-    # budget: standing still pays zero, so nothing in the reward ends it. 0 disables.
+    # Truncates a car going nowhere: standing still pays zero, so nothing in the
+    # reward ends it. 0 disables.
     stall_seconds: float = 5.0
 
-    # Drawn from a pool built once rather than generated per episode: a track costs
-    # ~33 ms against ~49 us for a step.
+    # Pooled rather than generated per episode: a track costs ~33 ms against ~49 us
+    # for a step.
     n_tracks: int = 64
     track_seed_range: tuple[int, int] = TRAIN_SEED_RANGE
     fixed_track_seed: Annotated[int | None, "pin every episode to one layout (debug)"] = None
@@ -90,8 +85,8 @@ class RacingEnvConfig:
     cross_track_history: int = 0
 
     def __post_init__(self) -> None:
-        # Each is a width, so a zero or negative count hands the exporter a
-        # different network than the run configured rather than a worse observation.
+        # A zero or negative width hands the exporter a different network than the
+        # run configured, rather than a worse observation.
         _floor(self, 1, "a sweep count", "scan_history")
         _floor(self, 0, "an observation block width", "throttle_history", "cross_track_history")
 
@@ -99,9 +94,8 @@ class RacingEnvConfig:
     def obs_dim(self) -> int:
         """Width of the observation, and the order `_observe` builds it.
 
-        Scan, `scan_history - 1` differences, `[vx, vy, yaw_rate, steer]`, past
-        throttles, signed cross-track. The scan stays first and stays what the
-        sensor produced.
+        Scan as the sensor produced it, `scan_history - 1` differences,
+        `[vx, vy, yaw_rate, steer]`, past throttles, signed cross-track.
         """
         return (
             self.scan_history * self.lidar.n_rays
@@ -135,8 +129,7 @@ class PPOConfig:
     """Pass-throughs to the `PPO(...)` constructor, resolved by `as_kwargs`.
 
     Named fields rather than a dict, so a mistyped hyperparameter is an argparse
-    error before the run starts, not a `TypeError` from inside SB3 once the
-    environments are up.
+    error before the run starts rather than a `TypeError` from inside SB3.
     """
 
     n_steps: Annotated[int, "rollout length per worker; one update per n_steps x n_envs"] = 2048
@@ -145,13 +138,11 @@ class PPOConfig:
     ent_coef: float = 0.003
     clip_range: float = 0.2
 
-    # Per-step factors mean a different amount of time at every control rate, so
-    # these are held as the durations they stand for: value horizon, credit window.
-    # See docs/findings/training-stages.md.
+    # Held as the durations they stand for, since a per-step factor means a
+    # different amount of time at every control rate. See
+    # docs/findings/training-stages.md.
     discount_s: float = 10.0
     credit_s: float = 3.0
-    # Per-step overrides. Set one to pin it, leave None to derive it from the
-    # durations above.
     gamma: Annotated[float | None, "per-step discount, overriding --ppo-discount-s"] = None
     gae_lambda: Annotated[float | None, "per-step GAE factor, overriding --ppo-credit-s"] = None
 
@@ -181,18 +172,16 @@ class RegressionConfig:
     """The two supervised stages that bracket PPO.
 
     Both fit the same network to (observation, action) pairs and differ only in who
-    produced the actions: `PurePursuit` before, the trained policy after. One
-    config, because there is one procedure.
+    produced the actions: `PurePursuit` before, the trained policy after.
     """
 
-    # Behaviour cloning, before PPO, from the pure-pursuit expert driving the
-    # racing line. 0 skips the stage and PPO starts from a random policy.
+    # Behaviour cloning from the pure-pursuit expert driving the racing line;
+    # skipping it starts PPO from a random policy.
     pretrain_samples: Annotated[int, "expert samples cloned before PPO (0 skips it)"] = 200_000
-    # Distillation into `student_arch`, on by default because the student is what
-    # ships: `pi_arch` is sized for the optimizer, `student_arch` for flash. It
-    # overwrites `snapshot.pt`, so the exporter needs no wiring. 0 skips the stage,
-    # and so does `student_arch == pi_arch`, which `train.train` detects and logs,
-    # since fitting a net into its own shape only clones it.
+    # On by default because the student is what ships: `pi_arch` is sized for the
+    # optimizer, `student_arch` for flash. It overwrites `snapshot.pt`, so the
+    # exporter needs no wiring. `student_arch == pi_arch` skips the stage, since
+    # fitting a net into its own shape only clones it.
     distill_samples: Annotated[int, "samples distilled into a student after PPO (0 skips it)"] = (
         200_000
     )
@@ -207,22 +196,19 @@ class RegressionConfig:
     # teacher's plus N(0, sigma), the label stays the teacher's, so the clone sees
     # the states its own errors produce.
     noise_std: float = 0.05
-    # Separate from `TrainConfig.seed` because they seed separate things:
-    # changing PPO's seed must not redraw the dataset it was cloned on.
+    # Separate from `TrainConfig.seed`: changing PPO's seed must not redraw the
+    # dataset it was cloned on.
     seed: int = 0
 
     def __post_init__(self) -> None:
-        # Checked at construction, not first read: a fit is configured minutes
-        # before it runs and publishes `snapshot.pt`. `epochs = 0` is not a shorter
-        # fit; the loop never runs, mse stays nan, and a random policy is published
-        # as PPO's warm start.
+        # `epochs = 0` is not a shorter fit: the loop never runs, mse stays nan, and
+        # a random policy is published as PPO's warm start.
         _floor(self, 1, "a pass count over the dataset", "epochs")
         _floor(self, 1, "a row count per optimizer step", "batch_size")
         # 0 skips the stage and is meaningful; negative is a sign error `collect`
         # would turn into an empty dataset.
         _floor(self, 0, "a transition count", "pretrain_samples", "distill_samples")
-        # 1.0 would hold the entire dataset out and leave the fit nothing to
-        # learn from; 0.0 is legal and means no validation split.
+        # 1.0 would hold the whole dataset out; 0.0 means no validation split.
         if not 0.0 <= self.val_frac < 1.0:
             raise ValueError(
                 f"val_frac is the fraction of episodes held out of the fit and must be "
@@ -243,8 +229,7 @@ class PolicyKwargs:
     log_std_init: float = 0.0
 
     def as_kwargs(self) -> dict[str, Any]:
-        """The mapping SB3 spreads into its policy constructor, and what the
-        `snapshot.pt` payload stores.
+        """The mapping SB3 spreads into its policy constructor, and what `snapshot.pt` stores.
 
         A `{"pi": ..., "vf": ...}` dict, not a flat list, which SB3 reads as both
         heads at once.
@@ -271,9 +256,8 @@ class TrainConfig:
     runs_root: str = str(RUNS_ROOT)
     seed: int = 0
 
-    # Sized independently: the actor ships, the critic is discarded at export, so
-    # its units are free. A shipped `model.h` records the architecture it was built
-    # from.
+    # Sized independently, since the critic is discarded at export. A shipped
+    # `model.h` records the architecture it was built from.
     pi_arch: Annotated[tuple[int, ...], "hidden layers of the actor, the net that ships"] = (
         64,
         64,
@@ -282,16 +266,14 @@ class TrainConfig:
         256,
         256,
     )
-    # None resolves against how the run started, see `policy_kwargs`. Set it
-    # to pin the exploration std regardless.
+    # None resolves against how the run started, see `policy_kwargs`.
     log_std_init: Annotated[
         float | None,
         f"pin the initial exploration std; unset means 0 from scratch and "
         f"{WARM_START_LOG_STD} on a cloned policy",
     ] = None
 
-    # Intervals below are in *environment* steps, not policy updates, and are
-    # converted to callback frequencies with `n_envs` factored in.
+    # In *environment* steps, not policy updates; the callbacks divide by `n_envs`.
     checkpoint_freq: int = 100_000
     # Rolling window on disk. Checkpoints are restart points, not a record:
     # `BestSnapshotCallback` keeps the best policy and training saves the last.
@@ -314,9 +296,8 @@ class TrainConfig:
     def policy_kwargs(self, warm_started: bool = False) -> PolicyKwargs:
         """The bag PPO's policy is built from, at this run's architecture.
 
-        The exploration std depends on what the trunk arrives as rather than on
-        what the user asked for, so it resolves against `warm_started` unless
-        pinned.
+        The exploration std depends on what the trunk arrives as rather than on what
+        the user asked for, so it resolves against `warm_started` unless pinned.
         """
         log_std = self.log_std_init
         if log_std is None:

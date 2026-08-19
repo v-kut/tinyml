@@ -35,12 +35,12 @@ not action-space MAE, and every variant drives the same seeds from `EVAL_SEED_RA
 
 ## Reading the error figures
 
-| figure | for |
-| --- | --- |
-| board vs host emulator | correctness: the only check that catches `tinyml.h` and `quantize.py` diverging |
-| int8 vs float32 / PyTorch | the real cost of quantization, and the number to quote |
-| ONNX vs the export | that the portable graph is the same function |
-| VecNormalize clipping on calibration | that `CLIP_OBS` is not truncating the calibration states |
+| figure                               | for                                                                             |
+| ------------------------------------ | ------------------------------------------------------------------------------- |
+| board vs host emulator               | correctness: the only check that catches `tinyml.h` and `quantize.py` diverging |
+| int8 vs float32 / PyTorch            | the real cost of quantization, and the number to quote                          |
+| ONNX vs the export                   | that the portable graph is the same function                                    |
+| VecNormalize clipping on calibration | that `CLIP_OBS` is not truncating the calibration states                        |
 
 Every comparison but the first is the host checking itself. Device timings are bracketed
 for the same reason: `us_infer` covers the kernel alone, `us_read` the read plus checksum

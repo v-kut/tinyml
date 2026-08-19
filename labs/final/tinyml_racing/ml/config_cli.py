@@ -89,17 +89,16 @@ def _add_flags(group: argparse._ArgumentGroup, defaults: Any, prefix: str = "") 
             # not a silent overwrite.
             _add_flags(group, default, prefix=f"{dest}_")
             continue
-        leaf, doc, nargs = _flag(hints[f.name])
+        hint = hints[f.name]
+        leaf, doc, nargs = _flag(hint)
         if leaf not in _SCALARS:
             raise TypeError(
-                f"config field {dest!r} is annotated {hints[f.name]!r}, which is not a "
+                f"config field {dest!r} is annotated {hint!r}, which is not a "
                 f"flag this reflection builds; add it to _NO_FLAG or teach _flag its shape"
             )
         kwargs: dict[str, Any] = {
             "dest": dest,
             "default": list(default) if nargs else default,
-            # Every flag prints its default, so the CLI is the reference for
-            # what a run does when you pass nothing.
             "help": " ".join(filter(None, (doc, f"(default: {_shown(default)})"))),
         }
         if leaf is bool:

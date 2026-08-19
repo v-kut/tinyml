@@ -9,16 +9,16 @@ the control loop.
 
 ## Files
 
-| file          | owns                                                                                                                                                                                        |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `camera.py`   | the world <-> screen projection: `project_into` (the only statement of it), `Camera` (`fit`, `aim`, `zoom_by`, `project`, `px`, `bounds`), `fit_scale`, `clamp_zoom`, `ZOOM_LIMITS`         |
-| `window.py`   | everything sized by the window: display surface, HUD font, pre-rendered glyphs, alpha overlay, car sprite and its per-shade scaled cache. Rebuilt whole on resize; the PNG decode is cached |
-| `scene.py`    | `Scene`: the three polylines (outer wall, inner wall, racing line), the corridor width and the track seed, built once per layout                                                            |
-| `world.py`    | the world-metre drawing pass: `draw_walls`, `draw_trail`, `draw_lidar`, `draw_car`, `draw_steer_arrow`                                                                                      |
-| `hud.py`      | the pixel-space overlay: `RateMeter`, `Latency`, `Readout`, `draw_panel`, `PanelLine`, `draw_gauges` (STR/THR/BRK), `MiniMap`                                                               |
-| `theme.py`    | the palette and the fixed HUD label strings, including the per-driver `CONTENDER` shades                                                                                                    |
-| `viewer.py`   | `PygameViewer` (owns window, camera, scene, accumulators; pumps input, gates frames, runs the world then the HUD pass), plus `Trail` and `Ghost`                                            |
-| `../watch.py` | one level up: the `tinyml-watch` front end. `POLICIES`, `Policy`, `resolve`, `Runner`, `hud_table`, `watch`, `main`. The package's only real consumer                                       |
+| file          | what it does                                                             |
+| ------------- | ------------------------------------------------------------------------ |
+| `camera.py`   | the world-to-pixel projection, the fit and the clamped zoom              |
+| `window.py`   | everything sized by the window: surface, font, glyphs, car sprite        |
+| `scene.py`    | the walls and racing line of one layout                                  |
+| `world.py`    | the world-metre pass: walls, trail, LiDAR fan, car, steering arrow       |
+| `hud.py`      | the pixel-space overlay: panel, gauges, latency meters, minimap          |
+| `theme.py`    | the palette and the fixed HUD labels                                     |
+| `viewer.py`   | `PygameViewer`: owns the window, gates frames, runs both passes          |
+| `../watch.py` | one level up: the `tinyml-watch` front end, this package's only consumer |
 
 ## Contracts
 
@@ -51,19 +51,13 @@ instead of failing.
 
 ## Tests
 
-`../../tests/test_render_math.py`, no display: the camera projection and its anchored
-zoom including the clamp order, the minimap fit against the panel it must stay
-inside, the frame gate, `Trail` distance sampling and its append-only contract,
-viewer episode state (what `begin_episode` drops and what survives a same-seed
-`set_track`), pygame teardown, `hud_table` column alignment, the `arch` column, the
-conditional `mcu us` column and the followed-row marker, the latency meters (sliding
-mean and worst, an unmeasured meter falsy rather than 0.00 ms, dashes for what could not
-be measured), that `Readout` carries nothing the table already does, and
-`watch --max-steps` driven through a recording viewer.
+| test                   | what it pins here                                                            |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `test_render_math.py`  | camera projection and zoom clamps, the frame gate, trails, and the HUD table |
+| `test_env_contract.py` | the `rgb_array` render, the only test that draws anything                    |
 
-Not covered: no test draws pixels. `world.py` and `hud.py` are exercised only by
-`RacingEnv(render_mode="rgb_array")` in `../../tests/test_env_contract.py`, which
-asserts the frame has many distinct colours and changes as the car moves.
+Not covered: no test asserts on pixels, so `world.py` and `hud.py` are only smoke-tested
+through that render.
 
 Decisions and measurements:
 [docs/findings/renderer-cost.md](../../docs/findings/renderer-cost.md).

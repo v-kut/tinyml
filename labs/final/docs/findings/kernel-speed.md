@@ -7,13 +7,13 @@ input element per layer.
 
 ## The chain
 
-| step | result | cost to exactness |
-| --- | --- | --- |
-| mbed core's `-Os`, scalar dot product | 1,150 us | none |
-| `-O3 -funroll-loops` on the sketch TU | 693 us | none |
-| `SMLAD` + `SXTB16` dot product | 523 us | none |
-| `tanhf` to a 257-knot table | below | one int8 level, bounded |
-| `lrintf` to `VCVTR` | 234 to 138 us | none |
+| step                                  | result        | cost to exactness       |
+| ------------------------------------- | ------------- | ----------------------- |
+| mbed core's `-Os`, scalar dot product | 1,150 us      | none                    |
+| `-O3 -funroll-loops` on the sketch TU | 693 us        | none                    |
+| `SMLAD` + `SXTB16` dot product        | 523 us        | none                    |
+| `tanhf` to a 257-knot table           | below         | one int8 level, bounded |
+| `lrintf` to `VCVTR`                   | 234 to 138 us | none                    |
 
 The first three rows were measured on the earlier 64-32-16-2 net, so they compare with
 each other and not with the last. The ordering is the finding: two compile decisions
@@ -55,13 +55,13 @@ exactly what `lrintf` and NumPy's `rint` do, and ARMv7-M conversion already give
 0 and saturates out of range, so the float comparisons that guarded them move after the
 conversion and become integer comparisons. Every float compare also cost a `VMRS`.
 
-| | before | after |
-| --- | --- | --- |
-| `bl lrintf` sites | 8 | 0 |
-| `vcmp`/`vmrs` pairs | 30 | 6 |
-| inference, 128 frames | 234 us mean, 254 max | **138 us mean, 161 max** |
-| board vs emulator (max) | 5.960e-08 | 5.960e-08 |
-| int8 vs PyTorch | 0.04300 max, 0.00525 mae | unchanged |
+|                         | before                   | after                |
+| ----------------------- | ------------------------ | -------------------- |
+| `bl lrintf` sites       | 8                        | 0                    |
+| `vcmp`/`vmrs` pairs     | 30                       | 6                    |
+| inference, 128 frames   | 234 us mean, 254 max     | 138 us mean, 161 max |
+| board vs emulator (max) | 5.960e-08                | 5.960e-08            |
+| int8 vs PyTorch         | 0.04300 max, 0.00525 mae | unchanged            |
 
 1.7x, same value for every input, so the parity contract did not move. The portable
 `lrintf` spelling stays for the host harness; the board verifies the `VCVTR` path.
@@ -70,12 +70,12 @@ conversion and become integer comparisons. Every float compare also cost a `VMRS
 
 Each variant flashed and replayed:
 
-| variant | inference | isolates |
-| --- | --- | --- |
-| current, bit-exact | 138 us | |
-| tanh to identity | 116 us | tanh table: 22 us |
-| plus no float dequantization | 109 us | `b + m * acc`: 7 us |
-| plus truncating quantizer | 103 us | rounding and rails: 6 us |
+| variant                      | inference | isolates                 |
+| ---------------------------- | --------- | ------------------------ |
+| current, bit-exact           | 138 us    |                          |
+| tanh to identity             | 116 us    | tanh table: 22 us        |
+| plus no float dequantization | 109 us    | `b + m * acc`: 7 us      |
+| plus truncating quantizer    | 103 us    | rounding and rails: 6 us |
 
 So ~103 us is MACs and loads, which no relaxation touches. Integer requantization with a
 fused int8-to-int8 activation table could recover most of the 35 us above that, a sixth

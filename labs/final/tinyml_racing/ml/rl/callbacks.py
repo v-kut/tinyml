@@ -72,9 +72,8 @@ class TrainingMetricsCallback(BaseCallback):
 
     @override
     def _on_step(self) -> bool:
-        rewards = self.locals["rewards"]
-        for i, (info, done) in enumerate(
-            zip(self.locals["infos"], self.locals["dones"], strict=True)
+        for reward, info, done in zip(
+            self.locals["rewards"], self.locals["infos"], self.locals["dones"], strict=True
         ):
             self._steps += 1
             for key in self._sums:
@@ -83,10 +82,10 @@ class TrainingMetricsCallback(BaseCallback):
             self._speed_sum += speed
             self._speed_max = max(self._speed_max, speed)
             self._saturated += info["grip_use"] > 1.0
-            # `rewards`, not `info`: `VecNormalize` divides by the running
-            # return std and then clips, so this counts a normalized reward
-            # against a bound stated in the same units (`ppo.reward_clip`).
-            if self._clip is not None and abs(rewards[i]) >= self._clip - 1e-6:
+            # `rewards`, not `info`: `VecNormalize` divides by the running return std
+            # and then clips, so this counts a normalized reward against a bound
+            # stated in the same units (`ppo.reward_clip`).
+            if self._clip is not None and abs(reward) >= self._clip - 1e-6:
                 self._clipped += 1
             if done:
                 self._laps.append(info["lap_progress"])
@@ -184,13 +183,7 @@ class BestSnapshotCallback(PolicySnapshotCallback):
 
 
 class QuietEvalCallback(EvalCallback):
-    """`EvalCallback` without its multi-line console dump.
-
-    SB3 prints two lines per evaluation and one more on every new best, which
-    is 806 lines of history for a run whose display is five bars. The numbers
-    still reach TensorBoard, `train.log` gets one line, and the newest mean is
-    published for the bar to show.
-    """
+    """`EvalCallback` without its multi-line console dump."""
 
     last_report: str = ""
 

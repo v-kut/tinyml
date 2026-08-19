@@ -115,15 +115,16 @@ def _episode_split(
 
     is_val = np.zeros(len(dones), dtype=bool)
     rows = 0
-    # `held` is the loop index because it counts episodes already taken: at the
-    # top of iteration k exactly k of them are in the validation set.
+    # `held` counts the episodes already taken: at the top of iteration k
+    # exactly k of them are in the validation set.
     for held, episode in enumerate(rng.permutation(len(starts))):
         # Never every episode: the fit needs rows, and `_action_mse` already
         # reports nan for an empty validation set.
         if rows >= target or held >= len(starts) - 1:
             break
-        is_val[starts[episode] : bounds[episode]] = True
-        rows += int(bounds[episode] - starts[episode])
+        start, end = starts[episode], bounds[episode]
+        is_val[start:end] = True
+        rows += int(end - start)
     return np.flatnonzero(~is_val), np.flatnonzero(is_val)
 
 
@@ -160,10 +161,12 @@ def fit_policy(
     # Normalized with the actor's statistics: the critic shares the trunk's
     # input space, and a value head fit on a differently-scaled observation is
     # a value head PPO cannot use.
-    critic_obs = None if value_rows is None else torch.as_tensor(obs_norm(value_rows[0]))
-    critic_targets = (
-        None if value_rows is None else torch.as_tensor(value_rows[1], dtype=torch.float32)
-    )
+    critic_obs: torch.Tensor | None = None
+    critic_targets: torch.Tensor | None = None
+    if value_rows is not None:
+        raw_value_obs, value_targets = value_rows
+        critic_obs = torch.as_tensor(obs_norm(raw_value_obs))
+        critic_targets = torch.as_tensor(value_targets, dtype=torch.float32)
 
     # `log_std` excluded by name, not by having no gradient: Adam skipping
     # `grad is None` would make that the optimizer's decision, not this stage's.

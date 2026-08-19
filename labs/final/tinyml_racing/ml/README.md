@@ -8,20 +8,20 @@ Nothing here imports `deploy/`, and the viewer is imported lazily and only for
 
 ## Files
 
-| file                    | owns                                                                                                                                                                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `config.py`             | the dataclass tree: `RacingEnvConfig` (and `obs_dim`, the single definition of the observation layout), `PPOConfig`, `RegressionConfig`, `PolicyKwargs`, `TrainConfig`, the train/eval seed ranges, `CLIP_OBS`, `WARM_START_LOG_STD` |
-| `config_io.py`          | JSON round-trip and provenance: `git_revision`, `config_to_dict`, `env_config_from_dict`                                                                                                                                             |
-| `config_cli.py`         | argparse reflection over those dataclasses: `add_config_arguments`, `configs_from_args`. Types, arity and help come off the field annotations, so a new config field is a flag with no edit here                                     |
-| `env.py`                | `RacingEnv`: observation assembly, reward, termination and truncation, the metrics in `info`, `rgb_array` render                                                                                                                     |
-| `rollout.py`            | one deterministic rollout implementation: `Frame`, `iter_rollout`, `closed_loop`, `eval_seeds`                                                                                                                                       |
-| `snapshot.py`           | the train -> deploy file format: `ObsNorm`, `SnapshotPayload`, `save_snapshot`, `publish_snapshot`, `load_snapshot`, `Snapshot.act`                                                                                                  |
-| `train.py`              | the `tinyml-train` CLI: stage orchestration, `publish`, `score`, `link_latest`                                                                                                                                                       |
-| `rl/ppo.py`             | the PPO stage: vec-env construction, worker seeding, `VecNormalize` seeding, reward clipping, pinned evaluation episodes, the warm start, `PhasedPPO` (one torch thread to collect, all of them to update) and `warm_track_pools`    |
-| `rl/callbacks.py`       | `TrainingMetricsCallback`, `PolicySnapshotCallback`, `BestSnapshotCallback`, `ProgressCallback`, `RotatingCheckpointCallback`, `QuietEvalCallback`                                                                                   |
-| `regression/dataset.py` | teacher rollouts: `pure_pursuit_teacher`, `snapshot_teacher`, `Dataset`, `collect`                                                                                                                                                   |
-| `regression/fit.py`     | the supervised fit: `build_policy`, the episode-level split, `fit_policy`, `FitResult`                                                                                                                                               |
-| `../progress.py`        | one level up: the live one-line-per-stage display and the `s` skip key, shared with `tinyml-build` and `tinyml-board`. A no-op outside a session                                                                                     |
+| file                    | what it does                                                               |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `config.py`             | the dataclass tree, and `obs_dim` as the one statement of the layout       |
+| `config_io.py`          | JSON round-trip and git provenance                                         |
+| `config_cli.py`         | argparse flags reflected off the dataclass fields                          |
+| `env.py`                | `RacingEnv`: observations, reward, termination, and the `rgb_array` render |
+| `rollout.py`            | the one deterministic rollout, shared by every scoring path                |
+| `snapshot.py`           | the train -> deploy file format, statistics included                       |
+| `train.py`              | the `tinyml-train` CLI that runs the three stages in order                 |
+| `rl/ppo.py`             | the PPO stage: vec-env construction, seeding, and the warm start           |
+| `rl/callbacks.py`       | metrics, snapshots, evaluation, and checkpoint rotation                    |
+| `regression/dataset.py` | teacher rollouts, with DART noise on the executed action                   |
+| `regression/fit.py`     | the supervised fit and its episode-level train/val split                   |
+| `../progress.py`        | one level up: the live per-stage display, shared with the deploy CLIs      |
 
 ## Contracts
 
@@ -57,15 +57,15 @@ data/runs/<run>/
 
 ## Tests
 
-| file                                     | what it pins here                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `../../tests/test_env_contract.py`       | `gamma`/`lambda` as durations, the observation space and its finiteness, the scan carried verbatim and its reset boundaries, the throttle channel, the composition sweep proving `obs_dim` equals the width `_observe` writes, the cross-track block's sign and range, seeding reproducibility including the pool/episode stream split, clipping, the `info` keys against the metric list the callbacks read, lap-progress semantics across the start/finish line, the crash penalty, the shaping telescoping bound, termination/truncation exclusivity, stall truncation, and the `rgb_array` render |
-| `../../tests/test_ml_pipeline.py`        | the episode-level train/val split and the `ObsNorm` leakage it prevents, `Frame` straddle through `iter_rollout`, `reward_clip`'s units, hand-computed reward accumulation and returns-to-go, and action clipping in `collect`                                                                                                                                                                                                                                                                                                                                                                        |
-| `../../tests/test_snapshot_roundtrip.py` | `ObsNorm.normalize_obs` equals `VecNormalize.normalize_obs`, a loaded snapshot's `act` equals `model.predict` over 20 real steps, the version gate, and the publish atomicity trio                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| test                         | what it pins here                                                       |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| `test_env_contract.py`       | the observation layout, seeding, reward terms, and when an episode ends |
+| `test_ml_pipeline.py`        | the train/val split, rollout frames, and reward bookkeeping             |
+| `test_snapshot_roundtrip.py` | a loaded snapshot acting like the policy it came from                   |
 
-Not covered: `train.py` end to end, `fit_policy` beyond one epoch, and the DART
-noise path statistically.
+Not covered: `train.py` end to end, `fit_policy` beyond one epoch, and the DART noise
+path statistically.
 
 Decisions and measurements:
 [docs/findings/observation-design.md](../../docs/findings/observation-design.md),
-[docs/findings/training-stages.md](../../docs/findings/training-stages.md),
+[docs/findings/training-stages.md](../../docs/findings/training-stages.md).

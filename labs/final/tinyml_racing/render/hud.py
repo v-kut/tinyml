@@ -1,8 +1,4 @@
-"""The overlay pass: telemetry panel, gauge strip, minimap.
-
-All of it is drawn in pixels against the window, so none of it costs anything
-the zoom can change, `draw.rect` and `blit` clip to the surface.
-"""
+"""The overlay pass: telemetry panel, gauge strip, minimap."""
 
 from __future__ import annotations
 

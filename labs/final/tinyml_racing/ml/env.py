@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from collections import deque
+from itertools import pairwise
 from typing import TYPE_CHECKING, override
 
 import gymnasium as gym
@@ -37,8 +38,8 @@ STALL_SPEED_FRAC = 0.01
 def _after_reset[T](value: T | None, name: str) -> T:
     """Per-episode state, or an error naming the step that was skipped.
 
-    `reset()` precedes `step()` by contract, so this cannot fire in a correct
-    rollout. It replaces an `AttributeError` several frames deeper.
+    Unreachable in a correct rollout; it replaces an `AttributeError` several
+    frames deeper.
     """
     if value is None:
         raise RuntimeError(f"RacingEnv.{name} is only valid after reset()")
@@ -72,8 +73,8 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
                 f"expected one of {self.metadata['render_modes']}"
             )
         self.render_mode = render_mode
-        # Distance a flat-out step covers, so progress reward stays O(1) whatever
-        # the car is. Observation scales live with their producers.
+        # Distance a flat-out step covers, so progress reward stays O(1) whatever the
+        # car is.
         self._progress_ref = self.params.top_speed * self.params.dt
         # One seed, two streams: the pool from `_pool_rng`, per-episode draws from
         # `_rng`, which `reset(seed=S)` re-seeds. Sharing one would void that.
@@ -86,17 +87,16 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
         )
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
 
-        # Per-episode state, set by `reset()` and exposed through the properties
-        # below, so no caller reasons about the window before the first reset.
+        # Per-episode state, exposed through the properties below so no caller
+        # reasons about the window before the first reset.
         self.pool: TrackPool | None = None
         self._track: Track | None = None
         self._progress: ArcLengthLUT | None = None
         self._state: CarState | None = None
         # Normalized, as the sensor produced it, see `_observe`.
         self.last_scan: np.ndarray | None = None
-        # Sweep, throttle and cross-track history, newest first, refilled per
-        # episode so nothing crosses a reset. `maxlen` because eviction is the
-        # policy: `scan_history == 1` must leave nothing behind.
+        # Newest first, refilled per episode so nothing crosses a reset. `maxlen`
+        # because eviction is the policy: `scan_history == 1` must leave nothing behind.
         self._scans: deque[np.ndarray] = deque(maxlen=self.cfg.scan_history)
         self._throttles: deque[float] = deque(maxlen=self.cfg.throttle_history)
         self._crosses: deque[float] = deque(maxlen=self.cfg.cross_track_history)
@@ -109,14 +109,12 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
         self._half_width = 1.0
         self._stall_from = 0.0
         self._stall_steps = 0
-        # Resolved against this car's `dt` once: what the truncation limit means
-        # in lap fractions must not depend on the control rate.
+        # Resolved against this car's `dt` once: what truncation means in lap
+        # fractions must not depend on the control rate.
         self._max_steps = self.cfg.episode_steps(self.params.dt)
-        # Progress pays at most 1 per step and a step is `dt` seconds, so N
-        # seconds of flat-out progress is N/dt reward units.
+        # Progress pays at most 1 per `dt` seconds, so N seconds of flat-out
+        # progress is N/dt reward units.
         self._off_track_cost = self.cfg.off_track_seconds / self.params.dt
-        # The stall window in steps and the distance to cover inside it, both
-        # resolved against this car.
         self._stall_limit = round(self.cfg.stall_seconds / self.params.dt)
         self._stall_distance = STALL_SPEED_FRAC * self.params.top_speed * self.cfg.stall_seconds
 
@@ -139,8 +137,8 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
 
     def _ensure_pool(self) -> TrackPool:
         # Built on first reset, not `__init__`: `SubprocVecEnv` pickles the factory,
-        # so anything built there is generated in the parent. Drawn from `_pool_rng`,
-        # so the pool belongs to the env rather than an episode.
+        # so anything built there is generated in the parent. `_pool_rng` keeps the
+        # pool owned by the env rather than an episode.
         if self.pool is None:
             if self.cfg.fixed_track_seed is not None:
                 self.pool = TrackPool([self.cfg.fixed_track_seed], self.cfg.track)
@@ -156,9 +154,8 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
     def warm_pool(self) -> int:
         """Generate every layout in this env's pool, returning how many there are.
 
-        For the caller that wants the ~29 ms per layout spent before the first
-        rollout rather than on a vectorized step's barrier, see
-        `rl.ppo.warm_track_pools`.
+        Spends the ~29 ms per layout before the first rollout rather than on a
+        vectorized step's barrier, see `rl.ppo.warm_track_pools`.
         """
         pool = self._ensure_pool()
         for seed in pool.seeds:
@@ -168,9 +165,9 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
     def _cross_track_potential(self, cross: float) -> float:
         """`Phi` for the shaping term: 0 on the racing line, `-w` at the wall.
 
-        Geometry only, and a magnitude: which side the car is on says nothing about
-        how far off it is. `step` overrides this with 0 at an absorbing terminal,
-        where Ng et al.'s invariance requires `Phi` to vanish.
+        A magnitude: which side the car is on says nothing about how far off it is.
+        `step` overrides this with 0 at an absorbing terminal, where Ng et al.'s
+        invariance requires `Phi` to vanish.
         """
         return -self.cfg.cross_track_weight * min(abs(cross) / self._half_width, 1.0)
 
@@ -184,21 +181,20 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
 
     def _observe(self):
         # Every block arrives normalized by its owner, so this is concatenation in
-        # the order `obs_dim` states. `last_scan` is the sweep the policy reacted to.
+        # the order `obs_dim` states.
         scan = cast_lidar(self.state, self.track, self.cfg.lidar, self._rng)
         self.last_scan = scan
         if self._scans:
             self._scans.appendleft(scan)
         else:
-            # The first frame pads the history with itself, so differences are zero
-            # rather than a jump from the previous episode's spawn.
+            # Padded with itself, so the first frame's differences are zero rather
+            # than a jump from the previous episode's spawn.
             self._scans.extend([scan] * self.cfg.scan_history)
 
-        # Successive differences, newest first: closure rate, then its rate of
-        # change. Differences rather than raw sweeps so int8 spends its range on what
-        # moved.
+        # Closure rate, then its rate of change. Differences rather than raw sweeps
+        # so int8 spends its range on what moved.
         blocks = [scan]
-        blocks += [self._scans[i] - self._scans[i + 1] for i in range(len(self._scans) - 1)]
+        blocks += [newer - older for newer, older in pairwise(self._scans)]
         blocks.append(proprioception(self.state, self.params))
         if self._throttles:
             blocks.append(np.asarray(self._throttles, dtype=np.float32))
@@ -207,8 +203,8 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
 
         obs = np.concatenate(blocks, dtype=np.float32)
         # Tested rather than rewritten: `nan_to_num` rebuilds all of `obs_dim` every
-        # step (4.4 us of a 45 us step) to repair a numerical fault that only a bug
-        # upstream produces, where the test costs a fraction of that.
+        # step (4.4 us of a 45 us step) to repair a fault only an upstream bug
+        # produces, where the test costs a fraction of that.
         if not np.isfinite(obs).all():
             np.nan_to_num(obs, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
         return obs
@@ -219,9 +215,8 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
         if seed is not None:
             self._rng = np.random.default_rng(seed)
 
-        # Drawn, not generated: a track costs ~33 ms against ~49 us per step, and the
-        # pool owns the arc-length LUT. `fixed_track_seed` is re-read every reset, so
-        # a layout can be pinned mid-run.
+        # Drawn, not generated: a track costs ~33 ms against ~49 us per step.
+        # `fixed_track_seed` is re-read every reset, so a layout can be pinned mid-run.
         pool = self._ensure_pool()
         track_seed = self.cfg.fixed_track_seed
         pooled = pool.sample(self._rng) if track_seed is None else pool.get(track_seed)
@@ -230,9 +225,8 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
         self._state = random_start_state(self.track, self._rng, params=self.params)
         self._steps = 0
         self._prev_steer = self.state.steer
-        # Refilled before the closing `_observe()`, so the first frame differences
-        # against nothing: `_scans` is padded there, `_crosses` below once the
-        # projection has run.
+        # Refilled before the closing `_observe()`: `_scans` is padded there,
+        # `_crosses` below once the projection has run.
         self._scans.clear()
         self._throttles.clear()
         self._throttles.extend([0.0] * self.cfg.throttle_history)
@@ -245,12 +239,12 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
         self._stall_from = 0.0
         self._stall_steps = 0
         self._potential = self._cross_track_potential(cross)
-        # Padded with the spawn's own offset: a car starting 3 m off the line is 3 m
-        # off it, and a zeroed history would claim otherwise, then jerk.
+        # Padded with the spawn's own offset: a zeroed history would claim a car
+        # starting 3 m off the line is on it, then jerk.
         self._crosses.extend([self._normalized_cross(cross)] * self.cfg.cross_track_history)
 
-        # Per-episode accumulators, and only the env knows where an episode begins:
-        # `set_track` no-ops on a reset onto the same pinned layout.
+        # Only the env knows where an episode begins: `set_track` no-ops on a reset
+        # onto the same pinned layout.
         if self._viewer is not None:
             self._viewer.begin_episode()
 
@@ -258,16 +252,14 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
 
     @override
     def step(self, action):
-        # Clamped as scalars: both channels are read as floats from here on, and the
-        # array round trip cost ~2 us of a ~45 us step for nothing.
+        # Clamped as scalars: the array round trip cost ~2 us of a ~45 us step.
         steer = min(max(float(action[0]), -1.0), 1.0)
-        # The second channel is a normalized drive/brake demand, not an acceleration:
-        # what it achieves depends on the motor curve and the grip cornering spent.
+        # A normalized drive/brake demand, not an acceleration: what it achieves
+        # depends on the motor curve and the grip cornering spent.
         throttle = min(max(float(action[1]), -1.0), 1.0)
         steer_cmd = steer * self.params.max_steer
-        # Recorded for the observation this step returns. `proprioception` carries
-        # the *achieved* steering angle, so nothing else in the observation says
-        # the car is braking.
+        # Recorded for the observation this step returns: `proprioception` carries
+        # the *achieved* steering angle, so nothing else says the car is braking.
         self._throttles.appendleft(throttle)
 
         self._state = car_step(self.state, steer_cmd, throttle, self.params)
@@ -277,35 +269,34 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
         still_on_track = self.track.walls.contains(pos)
 
         s, cross = self.progress.project(pos)
-        # Signed, and pushed before the `_observe()` this step returns, so the
-        # observation describes the state the reward is about to be computed for.
+        # Pushed before the `_observe()` this step returns, so the observation
+        # describes the state the reward is about to be computed for.
         self._crosses.appendleft(self._normalized_cross(cross))
         ds = s - self._s_prev
-        # Unwrap the arc-length delta across the start/finish line so
-        # completing a lap doesn't register as a huge negative jump.
-        half = self.progress.total_length / 2
+        # Unwrapped across the start/finish line, so a completed lap is not a huge
+        # negative jump.
+        total_length = self.progress.total_length
+        half = total_length / 2
         if ds < -half:
-            ds += self.progress.total_length
+            ds += total_length
         elif ds > half:
-            ds -= self.progress.total_length
-        # Distance covered since reset, unwrapped: `s` alone is where the car is from
-        # a random spawn, so `s / total` would carry a U(0, 1) offset. Starts at zero,
-        # negative for a car driving backwards.
+            ds -= total_length
+        # Distance covered since reset: `s` alone would carry the random spawn's
+        # U(0, 1) offset. Starts at zero, negative for a car driving backwards.
         self._advanced += ds
         self._s_prev = s
 
         # The clock restarts once `_stall_distance` is covered, so this measures
-        # failure to get anywhere, not instantaneous speed: a car easing through a
-        # hairpin keeps resetting it.
+        # failure to get anywhere rather than instantaneous speed: a car easing
+        # through a hairpin keeps resetting it.
         self._stall_steps += 1
         if self._advanced - self._stall_from >= self._stall_distance:
             self._stall_from = self._advanced
             self._stall_steps = 0
         stalled = self._stall_limit > 0 and self._stall_steps >= self._stall_limit
 
-        # Both terms are fractions: `ds` against the distance a flat-out step covers
-        # (so <= 1 per step), the steering increment against full lock, so the
-        # return's scale is the task's, not the car's.
+        # Both terms are fractions: `ds` against a flat-out step's distance, the
+        # steering increment against full lock, so the return's scale is the task's.
         progress = ds / self._progress_ref
         steer_rate_cost = (
             self.cfg.steer_rate_penalty
@@ -314,9 +305,9 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
         )
         self._prev_steer = self.state.steer
 
-        # Potential-based shaping toward the racing line: the reward carries `Phi`'s
-        # difference, so it telescopes and cannot move the optimum (Ng et al. 1999).
-        # `Phi` is 0 at the terminal, as the theorem requires.
+        # The reward carries `Phi`'s difference, so shaping telescopes and cannot
+        # move the optimum (Ng et al. 1999). `Phi` is 0 at the terminal, as the
+        # theorem requires.
         terminated = not still_on_track
         potential = 0.0 if terminated else self._cross_track_potential(cross)
         shaping = potential - self._potential
@@ -327,38 +318,35 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
             reward -= self._off_track_cost
 
         # A stall truncates: no reward attached, and PPO bootstraps the cut-off
-        # value. Gated on `terminated`, since the flags are exclusive and a crash on
-        # the last step is a crash.
+        # value. Gated on `terminated`, since a crash on the last step is a crash.
         truncated = not terminated and (self._steps >= self._max_steps or stalled)
         info = {
-            # Laps completed since the reset (the task, can exceed 1.0 or go
-            # negative) and separately where on the lap the car is, in [0, 1).
-            "lap_progress": self._advanced / self.progress.total_length,
-            "track_position": s / self.progress.total_length,
+            # Laps since the reset (can exceed 1.0 or go negative), and separately
+            # where on the lap the car is, in [0, 1).
+            "lap_progress": self._advanced / total_length,
+            "track_position": s / total_length,
             "on_track": still_on_track,
             "speed": self.state.vx,
             "off_track": terminated,
             "stalled": stalled,
-            # For `TrainingMetricsCallback`, in *raw* env units: `VecNormalize`
-            # rescales what PPO sees, and a decomposition you cannot compare to
-            # its own config weights cannot be tuned.
+            # For `TrainingMetricsCallback`, in *raw* env units: a decomposition you
+            # cannot compare against its own config weights cannot be tuned.
             "r_progress": progress,
             "r_steer_rate": -steer_rate_cost,
             "r_shaping": shaping,
             "r_crash": -self._off_track_cost if terminated else 0.0,
-            # A magnitude: `project` reports it signed, and this is logged as a
-            # rollout mean, which a signed quantity averages away to nothing.
+            # A magnitude: logged as a rollout mean, which averages a signed
+            # quantity away to nothing.
             "cross_track": abs(cross),
             "grip_use": lateral_grip_usage(self.state, self.params),
-            # `|a| > 0.99` rather than true clipping: SB3 clips first, so saturation
-            # only shows as a policy living on the rails, where int8 has the least
-            # resolution to spare.
-            # Scalar arithmetic, not `np.mean(np.abs(action) > 0.99)`: that one
-            # diagnostic was 3 us of a 45 us step, 7% of the simulator.
+            # `|a| > 0.99` rather than true clipping, since SB3 clips first: what is
+            # left to see is a policy living on the rails, where int8 has the least
+            # resolution to spare. Scalar arithmetic because
+            # `np.mean(np.abs(action) > 0.99)` was 3 us of a 45 us step.
             "action_rail": 0.5 * ((abs(steer) > 0.99) + (abs(throttle) > 0.99)),
             "action_steer": abs(steer),
-            # Magnitude, like the steering channel: signed, a policy alternating
-            # flat-out and hard braking would average to a coast.
+            # A magnitude too: alternating flat-out and hard braking would average
+            # to a coast.
             "action_throttle_abs": abs(throttle),
         }
         return self._observe(), reward, terminated, truncated, info
@@ -368,20 +356,19 @@ class RacingEnv(gym.Env[np.ndarray, np.ndarray]):
         """Offscreen RGB frame of the current state: the `rgb_array` path."""
         if self.render_mode != "rgb_array":
             return None
-        # No `state is None` check: the `state` property raises with a message
-        # that names the unset attribute, which is strictly more useful here.
-
+        # No `state is None` check: the `state` property raises a message naming the
+        # unset attribute, which is more useful here.
         if self._viewer is None:
-            # Imported here, not at module scope: `SubprocVecEnv` workers import
-            # this module and must not pay for pygame just to run physics.
+            # Imported here, not at module scope, so `SubprocVecEnv` workers running
+            # physics never pay for pygame.
             from tinyml_racing.render.viewer import PygameViewer
 
             os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
             self._viewer = PygameViewer(interactive=False).open()
 
         self._viewer.set_track(self.track)
-        # One frame per step, and the viewer's simulation-time accumulators
-        # (distance, skid marks) advance here rather than inside `draw`.
+        # The viewer's simulation-time accumulators (distance, skid marks) advance
+        # here rather than inside `draw`.
         self._viewer.observe(self.state, self.params.dt)
         self._viewer.draw(self.state, scan=self.last_scan, lidar=self.cfg.lidar)
         return self._viewer.frame_rgb()

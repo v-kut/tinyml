@@ -24,12 +24,7 @@ def fit_scale(outer: np.ndarray, box: tuple[int, int], fill: float) -> tuple[flo
 
 
 def project_into(pts: Any, center: np.ndarray, ppm: float, box: tuple[int, int]) -> np.ndarray:
-    """Metres to pixels inside `box`, centred on `center` with y flipped.
-
-    The only statement of the projection: `Camera.project` is this with the
-    window as the box, and `hud.MiniMap` is this with its panel, offset to the
-    panel's corner. Both scale and flip, neither rotates.
-    """
+    """Metres to pixels inside `box`, centred on `center` with y flipped."""
     pts = np.asarray(pts, dtype=float)
     out = np.empty(pts.shape, dtype=float)
     out[..., 0] = box[0] / 2 + (pts[..., 0] - center[0]) * ppm
@@ -38,10 +33,7 @@ def project_into(pts: Any, center: np.ndarray, ppm: float, box: tuple[int, int])
 
 
 class Camera:
-    """Metres to pixels, and where the centre of the window is in the world.
-
-    `ppm` is derived, so no zoom, pan or resize has to remember to update it.
-    """
+    """Metres to pixels, and where the centre of the window is in the world."""
 
     __slots__ = ("base_center", "base_ppm", "center", "pan_offset", "size", "zoom")
 
@@ -64,10 +56,7 @@ class Camera:
         self.base_ppm, self.base_center = fit_scale(outer, self.size, 1.0 - 2 * FIT_MARGIN)
 
     def aim(self, at: np.ndarray | None) -> None:
-        """Look at `at`, or at wherever the pan has left the view.
-
-        Following writes the pan offset, so leaving follow mode holds the view.
-        """
+        """Look at `at`, or at wherever the pan has left the view."""
         if at is None:
             self.center = self.base_center + self.pan_offset
         else:

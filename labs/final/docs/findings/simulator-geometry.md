@@ -29,17 +29,6 @@ Now `2 * min_turn_radius` = 17.13 m, derived through a `default_factory` so the 
 drift apart. The expert laps every layout again, which is the check: it validates the
 parameters, so a generator it cannot drive is a generator bug.
 
-## Three things were not wrong
-
-- `tangents` and `curvature` are exact closed forms. What disagreed was a finite
-  difference of the samples: refining `sample_spacing` over a decade shrinks the tangent
-  disagreement from 2.99 deg to 0.23 deg.
-- The curvature residual cannot converge. Curvature is a square wave over exact arcs and
-  straights, and a central difference across that step returns about half the arc's value
-  at any spacing. `1/(2R)` is the floor, and the tolerance says so.
-- The normals were never flipped. The assertion compared distances from the centroid,
-  valid only on a convex lap; it is a signed-area comparison now.
-
 ## Spawns are drawn against a brake plan
 
 `random_start_state` used to cap spawn speed by the curvature of the sample it landed on,

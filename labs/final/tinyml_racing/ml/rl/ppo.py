@@ -56,7 +56,7 @@ class WarmStart:
     reward_accumulator: np.ndarray
 
 
-def make_env(rank: int, env_cfg: RacingEnvConfig, seed: int):
+def make_env(env_cfg: RacingEnvConfig, seed: int):
     """Factory for one worker environment.
 
     `Monitor` is not optional: it records episode returns and lengths into
@@ -64,7 +64,7 @@ def make_env(rank: int, env_cfg: RacingEnvConfig, seed: int):
     """
 
     def _init():
-        return Monitor(RacingEnv(config=env_cfg, seed=seed + rank))
+        return Monitor(RacingEnv(config=env_cfg, seed=seed))
 
     return _init
 
@@ -81,7 +81,7 @@ def worker_seed_base(seed: int) -> int:
 
 def build_train_env(env_cfg: RacingEnvConfig, train_cfg: TrainConfig, gamma: float) -> VecNormalize:
     base = worker_seed_base(train_cfg.seed)
-    factories = [make_env(i, env_cfg, base) for i in range(train_cfg.n_envs)]
+    factories = [make_env(env_cfg, base + i) for i in range(train_cfg.n_envs)]
     # Subprocesses only pay off once there is real work to parallelize;
     # a single env in its own process just adds IPC latency per step.
     venv = SubprocVecEnv(factories) if train_cfg.n_envs > 1 else DummyVecEnv(factories)
@@ -187,7 +187,7 @@ def seed_normalization(venv: VecNormalize, warm: WarmStart) -> None:
     batch's own variance, a distribution the cloned trunk has never seen. Counts travel
     with the statistics, capped at `WARM_START_MAX_COUNT`.
     """
-    n = min(float(len(warm.reward_accumulator)), float(WARM_START_MAX_COUNT))
+    n = float(min(len(warm.reward_accumulator), WARM_START_MAX_COUNT))
     # `VecNormalize` types these as `dict | RunningMeanStd` to cover dict
     # observation spaces; ours is a `Box`, so both are the plain accumulator.
     obs_rms, ret_rms = venv.obs_rms, venv.ret_rms
@@ -209,7 +209,6 @@ class PhasedPPO(PPO):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        # Whatever torch chose for this machine, which is what the update keeps.
         self._update_threads = torch.get_num_threads()
 
     @override
@@ -229,17 +228,17 @@ def train_ppo(
 ) -> None:
     """Run PPO into `run`, optionally starting from a cloned policy."""
     policy_kwargs = train_cfg.policy_kwargs(warm_started=warm_start is not None)
-    # `dt` decides what `gamma` and `gae_lambda` are worth, and this runs before
-    # the envs are built because `VecNormalize` scales the reward against the
-    # same discount.
-    ppo_kwargs = train_cfg.ppo.as_kwargs(CarParams().dt)
+    # `dt` decides what `gamma` and `gae_lambda` are worth, and this runs before the
+    # envs are built because `VecNormalize` scales the reward against the same discount.
+    dt = CarParams().dt
+    ppo_kwargs = train_cfg.ppo.as_kwargs(dt)
     logger.info(
         "credit: gamma %.5f (%.1f s horizon), lambda %.4f (%.1f s window) at dt=%.3f s",
         ppo_kwargs["gamma"],
         train_cfg.ppo.discount_s,
         ppo_kwargs["gae_lambda"],
         train_cfg.ppo.credit_s,
-        CarParams().dt,
+        dt,
     )
 
     train_env = build_train_env(env_cfg, train_cfg, ppo_kwargs["gamma"])
@@ -248,7 +247,7 @@ def train_ppo(
     eval_env = build_eval_env(env_cfg, train_cfg, train_env)
     logger.info(
         "reward: crash costs %.0f (%.1f s of flat-out progress), reward clip +/-%.0f sigma",
-        env_cfg.off_track_seconds / CarParams().dt,
+        env_cfg.off_track_seconds / dt,
         env_cfg.off_track_seconds,
         train_env.clip_reward,
     )

@@ -155,13 +155,15 @@ class SnapshotPayload:
                 f"snapshot version {version!r} is not supported "
                 f"(this build reads version {SNAPSHOT_VERSION})"
             )
+        kwargs = payload["policy_kwargs"]
+        net_arch = kwargs["net_arch"]
         return cls(
             policy_state_dict=payload["policy_state_dict"],
             policy_class=payload["policy_class"],
             policy_kwargs=PolicyKwargs(
-                pi_arch=tuple(payload["policy_kwargs"]["net_arch"]["pi"]),
-                vf_arch=tuple(payload["policy_kwargs"]["net_arch"]["vf"]),
-                log_std_init=float(payload["policy_kwargs"]["log_std_init"]),
+                pi_arch=tuple(net_arch["pi"]),
+                vf_arch=tuple(net_arch["vf"]),
+                log_std_init=float(kwargs["log_std_init"]),
             ),
             observation_space=payload["observation_space"],
             action_space=payload["action_space"],

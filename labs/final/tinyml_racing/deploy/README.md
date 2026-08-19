@@ -1,56 +1,57 @@
 # `tinyml_racing/deploy/`
 
-The host half of deployment: pull the trained actor out of the snapshot, quantize
-it to int8, emit it as a C header, mirror it as ONNX, score all of it in closed
-loop over held-out layouts, and hash the result. `quantize.QuantModel` is the
-definition of the deployed model; `arduino/deploy/tinyml.h` must match it bit for
-bit.
+The host half of deployment. It takes the trained actor out of the run's snapshot,
+quantizes it to int8, writes it out as a C header, mirrors it as ONNX, scores every
+variant in closed loop, and records what it found. `quantize.QuantModel` is the
+reference implementation of the deployed model: the C kernel on the board has to
+reproduce it exactly, not approximately.
+
+`tinyml-build` runs the whole chain:
+
+```
+export -> quantize -> C header -> ONNX gate -> evaluate -> report -> manifest -> compile -> upload
+```
 
 ## Files
 
-| file             | owns                                                                                                                                                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `artifact.py`    | the `actor.npz` schema: `DenseLayer`, `ActorExport`, `EXPORT_VERSION`, save/load with a hard version gate. The torch-free boundary: nothing downstream of `export.py` imports torch                           |
-| `export.py`      | `extract_actor`, `collect_calibration`, `export_actor`: the only torch consumer. Reads `training/snapshot.pt`, folds in the `VecNormalize` statistics, collects on-policy calibration states and reference IO |
-| `quantize.py`    | the int8 scheme and the emulator: `ACTIVATION`, `quantize_model`, `QuantModel` (`arch`, `flash_bytes`, `deployed_flash_bytes`, `digest`), `TANH_LUT`, `float_actor`, `action_error`, `clipping_rate`          |
-| `codegen.py`     | `emit_header` / `write_header`: `QuantModel` as `const` int8 and float32 blobs plus `MODEL_*` macros                                                                                                          |
-| `onnx_export.py` | `build_model`, `write_onnx`, `onnx_error`: an opset-17 float32 graph of the folded actor, plus its error against the export                                                                                   |
-| `evaluate.py`    | `evaluate_run`, `format_table`, `write_report`: float32 / int8 / board over shared held-out seeds, into `report.json`                                                                                         |
-| `manifest.py`    | `bundle`, `sha256`, `write_manifest`: shapes, digests, SHA-256s, the headline error, `MANIFEST_VERSION`                                                                                                       |
-| `board.py`       | the host side of the wire protocol: `find_port`, `BoardIdentity`, `Board` (`verify`, `infer`, `last_infer_us`, `last_round_trip_ms`), `self_test`, and the `tinyml-board` CLI                                 |
-| `build.py`       | the `tinyml-build` CLI: export -> quantize -> codegen -> ONNX gate -> evaluate -> report -> manifest -> `update_sketch` -> `toolchain_prefix` -> compile -> optional upload                                   |
+| file             | what it does                                                           |
+| ---------------- | ---------------------------------------------------------------------- |
+| `artifact.py`    | the `actor.npz` format, and the torch-free boundary below `export.py`  |
+| `export.py`      | the only torch consumer: snapshot in, folded actor and calibration out |
+| `quantize.py`    | the int8 scheme, the tanh table, and the NumPy emulator of the kernel  |
+| `codegen.py`     | `QuantModel` as `const` arrays plus `MODEL_*` macros                   |
+| `onnx_export.py` | an opset-17 float32 graph of the folded actor, and its error           |
+| `evaluate.py`    | float32 / int8 / board over shared held-out seeds, into `report.json`  |
+| `manifest.py`    | shapes, digests, SHA-256s, and the headline error                      |
+| `board.py`       | the host side of the serial protocol, and the `tinyml-board` CLI       |
+| `build.py`       | the `tinyml-build` CLI that drives the chain above                     |
 
-Both CLIs report through `../progress.py`, the trainer's live display: one bar per
-stage (`calibrate`, `quantize`, `artifacts`, `evaluate`, `record`, `compile`,
-`upload`), log lines above it, and the summary printed as plain text once the
-display closes. The bars are a no-op outside a session, so `build()` and
-`evaluate_run()` stay usable from a script or a test.
+Both CLIs report through `../progress.py`, one bar per stage, which is a no-op
+outside a terminal session so `build()` and `evaluate_run()` stay callable from a
+script or a test.
 
 ## Contracts
 
-- **Two version gates, both fatal.** `EXPORT_VERSION` on `actor.npz` and
-  `SNAPSHOT_VERSION` on the training handoff. Nothing reads a file whose meaning
-  may have changed.
-- **`QuantModel` is the reference implementation.** `codegen.py` serializes it,
-  `tinyml.h` must reproduce it exactly, and `tests/test_quantized_model.py`
-  compiles the C and diffs the two for equality, not for closeness.
-- **One activation, `quantize.ACTIVATION`.** `extract_actor`, `quantize_model`,
-  `onnx_export.build_model` and `tinyml.h`'s `#if` each refuse anything else.
-- **One architecture string.** `QuantModel.arch` is what codegen writes, what the
-  report prints and what `Board.verify` compares against the handshake.
-- **Model identity.** The board reports a digest of its compiled weights;
-  `Board.verify` refuses to run unless it matches the model on disk.
-- **Flash figures are the deployed ones.** `flash_bytes` counts only what codegen
-  emits; `deployed_flash_bytes` adds `tinyml.h`'s tanh table, and both the
-  manifest's `compression` and the report divide by the deployed figure.
-- **Ordering.** The generated header is copied over the tracked
-  `arduino/deploy/model.h` as the last write of a build, after `report.json` and
-  `manifest.json`, so the sketch in the tree always corresponds to a model whose
-  evaluation was recorded.
-- **The sketch build requires a current arm-none-eabi.** `toolchain_prefix`
-  points `compiler.path` at the system `arm-none-eabi-g++` and refuses the build
-  if it cannot compile `ACLE_PROBE`.
-- **Every variant drives the same seeds**, drawn from `EVAL_SEED_RANGE`.
+`QuantModel` is the single statement of the deployed model. `codegen.py` serializes it,
+`tinyml.h` has to match it bit for bit, and the two are diffed for equality rather than
+for closeness. The same holds for the two strings that describe it: `quantize.ACTIVATION`
+is checked by the exporter, the quantizer, the ONNX builder and the kernel's `#if`, and
+`QuantModel.arch` is what codegen writes, what the report prints, and what `Board.verify`
+compares against the board's handshake. The board also reports a digest of its compiled
+weights, so a stale upload is caught before it drives instead of showing up as a bad lap.
+
+Two version gates: `EXPORT_VERSION` on `actor.npz` and `SNAPSHOT_VERSION` on
+the training, because both files went through several arch changes and we would want to avoid the reader silently
+taking a default the weights were never trained with. Flash is always the deployed figure:
+`flash_bytes` counts what codegen emits, `deployed_flash_bytes` adds the kernel's own tanh
+table, and every compression number divides by the latter. Every variant drives the same
+tracks, drawn from `EVAL_SEED_RANGE` and disjoint from the training seeds, so the float32,
+int8 and board rows differ only in the model.
+
+Order matters at the end of a build. `arduino/deploy/model.h` is overwritten after
+`report.json` and `manifest.json`, so the sketch in the tree always corresponds to a model
+whose evaluation was recorded, and the compile itself is gated on `toolchain_prefix`
+finding a system `arm-none-eabi-g++` that can build `ACLE_PROBE`.
 
 ## Bundle
 
@@ -65,17 +66,15 @@ artifacts/
 
 ## Tests
 
-| file                                  | what it pins here                                                                                                                                    |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `../../tests/test_quantized_model.py` | the int8 arithmetic, the tanh table including the `                                                                                                  | x   | == 8.0`edge, flash accounting, the weight digest, the header's float literals, and, via`tests/ckernel/main.c`compiled with the host`cc`, an exact-equality diff of the compiled kernel against `QuantModel`, plus an ASAN run |
-| `../../tests/test_artifact.py`        | the `actor.npz` round trip enumerated from `dataclasses.fields`, so a new field cannot skip disk, and the version-gate cases                         |
-| `../../tests/test_onnx_export.py`     | the graph against the float baseline, the named and batched IO contract, metadata provenance, and the refusal of an activation the kernel cannot run |
-| `../../tests/test_run_layout.py`      | the `Run` path contract, `Run.resolve` precedence, checkpoint rotation, manifest content and hashing                                                 |
-| `../../tests/conftest.py`             | the shared `ActorExport` builder all four use                                                                                                        |
+| test                      | what it pins here                                                                             |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| `test_quantized_model.py` | the int8 math, the tanh table, flash accounting, and the C kernel diffed against `QuantModel` |
+| `test_artifact.py`        | the `actor.npz` round trip and its version gate                                               |
+| `test_onnx_export.py`     | the ONNX graph against the float baseline, and its IO contract                                |
+| `test_run_layout.py`      | run paths, checkpoint rotation, and manifest hashing                                          |
 
-Not covered: `export.py`, `board.py`, `evaluate.py`, `build.py`. They need torch, a
-serial port or `arduino-cli`. `tinyml-board` is the manual check for the device
-half.
+Not covered: `export.py`, `board.py`, `evaluate.py` and `build.py`, which need torch, a
+serial port or `arduino-cli`. `tinyml-board` is the manual check for the device half.
 
 Decisions and measurements: [docs/findings/quantization.md](../../docs/findings/quantization.md),
 [docs/findings/kernel-speed.md](../../docs/findings/kernel-speed.md).

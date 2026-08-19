@@ -32,8 +32,8 @@ def git_revision() -> str | None:
         return None
 
     try:
-        # An argv list, never a shell. `check=False` is explicit: a non-zero
-        # exit is what "not a checkout" looks like, and is inspected below.
+        # `check=False` is explicit: a non-zero exit is what "not a checkout"
+        # looks like, and is inspected below.
         out = subprocess.run(  # noqa: S603
             [git_path, "rev-parse", "--short", "HEAD"],
             cwd=Path(__file__).resolve().parents[2],
@@ -49,8 +49,7 @@ def git_revision() -> str | None:
     if out.returncode != 0:
         return None
 
-    revision = out.stdout.strip()
-    return revision or None
+    return out.stdout.strip() or None
 
 
 def dataclass_to_mapping(config: Any) -> dict[str, Any]:
