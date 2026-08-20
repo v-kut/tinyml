@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="assets/spacium.gif" alt="Spacium" width="420">
-</p>
+[![Spacium](./docs/github-header.gif)](https://github.com/v-kut/tinyml)
 
 # Spacium
 
@@ -20,12 +18,19 @@ arduino-cli core install arduino:mbed_nano
 3. Install `arm-none-eabi-g++`
 
 > [!IMPORTANT]
-> `tinyml-build` compiles the sketch with the system `arm-none-eabi-g++` rather than the
-> one bundled with Arduino's mbed core, and it refuses to build if that toolchain is
-> missing. The reason is the DSP path in the kernel: it uses ACLE intrinsics that the
-> core's gcc 7.2 does not implement. Install the toolchain from your distribution's
-> package manager. The build probes the compiler by actually compiling those intrinsics,
-> so a toolchain that is present but too old still fails, and it tells you so up front.
+> The sketch is built with the `arm-none-eabi-g++` on your `PATH`, not the mbed core's
+> gcc 7.2, which cannot compile the ACLE intrinsics the DSP kernel uses. **gcc 14 (2024) or
+> newer is required**: `__ror` only entered `arm_acle.h` in gcc 14, `__smlad`/`__sxtb16` in
+> gcc 10. `tinyml-build` checks by compiling those intrinsics, so an older toolchain fails
+> with an explanation rather than a version table.
+>
+> | platform        | install                                                                                                                                         |
+> | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+> | Arch            | `pacman -S arm-none-eabi-gcc`                                                                                                                   |
+> | Debian / Ubuntu | `apt install gcc-arm-none-eabi` (Ubuntu 24.04 ships 13.2, too old)                                                                              |
+> | Fedora          | `dnf install arm-none-eabi-gcc-cs arm-none-eabi-newlib`                                                                                         |
+> | macOS           | `brew install arm-none-eabi-gcc`                                                                                                                |
+> | Windows         | `winget install Arm.GnuArmEmbeddedToolchain`, [Arm GNU Toolchain installer](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads); |
 
 ## Workflow
 

@@ -9,6 +9,7 @@ __pycache__/
 # Generated artifacts: runs, checkpoints, exported models, figures.
 data/
 figures/
+docs/presentation/internal
 *.zip
 *.pt
 *.pkl

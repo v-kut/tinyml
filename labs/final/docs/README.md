@@ -1,10 +1,11 @@
 # `docs/`
 
-| path                          | what it is                           |
-| ----------------------------- | ------------------------------------ |
-| `findings/`                   | why the code is what it is           |
-| `PROPOSAL.md`, `proposal.pdf` | the original proposal, as submitted  |
-| `materials/`                  | background reading, third-party      |
+| path                          | what it is                          |
+| ----------------------------- | ----------------------------------- |
+| `findings/`                   | why the code is what it is          |
+| `presentation/`               | slides                              |
+| `PROPOSAL.md`, `proposal.pdf` | the original proposal, as submitted |
+| `materials/`                  | background reading, third-party     |
 
 ## Materials
 
