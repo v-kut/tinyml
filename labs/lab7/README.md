@@ -33,23 +33,23 @@ lift/lower), 10 s each, inertial sensor at 62.5 Hz over 6 axes. Rebalanced into 
 
 ### Impulse
 
-![Impulse: 2000 ms window @ 62.5 Hz → spectral analysis → classification.](assets/part1/create_impulse.png)
+![Impulse: 2000 ms window @ 62.5 Hz → spectral analysis → classification.](docs/part1/create_impulse.png)
 
-![Spectral features for the six IMU axes.](assets/part1/spectral_features.png)
+![Spectral features for the six IMU axes.](docs/part1/spectral_features.png)
 
 Time-series input, 2000 ms window, 500 ms increase (561 windows), spectral analysis on all
 six axes (66 features), Keras classifier with 2 classes.
 
 ### Training
 
-![Network settings and validation results: 85.8 %.](assets/part1/classifier.png)
+![Network settings and validation results: 85.8 %.](docs/part1/classifier.png)
 
 `66 → Dense(20) → Dense(10) → Dense(2)`, 30 cycles, lr 0.0005, 20 % validation split, int8.
 Validation accuracy 85.8 % for both float32 and int8, loss 0.36.
 
 ### Test set
 
-![Model testing: 98.32 %.](assets/part1/model_testing.png)
+![Model testing: 98.32 %.](docs/part1/model_testing.png)
 
 98.32 % on the 7 held-out samples: `idle` 100 %, `lift` 97.1 %, AUC 0.99, F1 0.98.
 
@@ -61,7 +61,7 @@ DSP 33 ms + inference 0.63 ms per window. Arduino library and flashable firmware
 
 ### On-device test
 
-![Serial output of `edge-impulse-run-impulse` on the flashed board.](assets/part1/inference_serial.png)
+![Serial output of `edge-impulse-run-impulse` on the flashed board.](docs/part1/inference_serial.png)
 
 `lift` wins while the board is being moved (0.996, then 0.723 as the motion stops) and
 `idle` wins once it is flat and still (0.754). Both states are identified correctly, with
@@ -85,7 +85,7 @@ The ensemble contains 7 trained networks: 3 autoencoders (encoders kept), 3 bran
 are concatenated into $3 \times 12 = 36$ values in the fixed order `[raw | std | minmax]`. The stacked meta-classifier is
 `36 -> Dense(24, ReLU) -> Dense(12, Softmax)`, and its argmax is the final activity.
 
-![Diagram.](assets/diagram.png)
+![Diagram.](docs/diagram.png)
 
 The 12 output classes are the mHealth activities: standing still, sitting and relaxing,
 lying down, walking, climbing stairs, waist bends forward, frontal elevation of arms,
@@ -157,7 +157,7 @@ win.
 
 ## Question 3: Arduino deployment and real-world behavior
 
-![Serial monitor output with the board resting flat](assets/serial_monitor.png)
+![Serial monitor output with the board resting flat](docs/serial_monitor.png)
 
 With the board lying flat and motionless, the sketch collects 100 samples at 50 Hz
 (2 s per window) and then prints the three branch softmax vectors and the stacked
