@@ -24,7 +24,6 @@ set -Eeuo pipefail
 #   TF_VERSION=2.14.1          Override the pinned TensorFlow version (match to PY_VERSION)
 #   KERAS_VERSION=2.14.0       Override the pinned Keras version to match TF_VERSION
 #   TFMOT_VERSION=0.8.0        Override the pinned TF-MOT version to match TF_VERSION
-#   CUDA=0|1                   Install with CUDA support
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -44,17 +43,7 @@ TF_VERSION="${TF_VERSION:-2.14.1}"
 KERAS_VERSION="${KERAS_VERSION:-2.14.0}"
 TFMOT_VERSION="${TFMOT_VERSION:-0.8.0}"
 NUMPY_SPEC="numpy<2"
-# Set to 1 to pull tensorflow[and-cuda], which vendors the exact CUDA 11.8 /
-# cuDNN 8.7 runtime as pip wheels inside this venv. This avoids depending on
-# Arch's system-wide `cuda`/`cudnn` pacman packages, which always track the
-# latest CUDA and will NOT match TF 2.14. You still need the NVIDIA driver
-# installed system-wide (pacman -S nvidia nvidia-utils), just not the toolkit.
-CUDA="${CUDA:-0}"
-if [[ "$CUDA" == "1" ]]; then
-  TF_PACKAGE="tensorflow[and-cuda]==$TF_VERSION"
-else
-  TF_PACKAGE="tensorflow==$TF_VERSION"
-fi
+TF_PACKAGE="tensorflow==$TF_VERSION"
 
 msg() {
   printf '\n[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
@@ -70,7 +59,7 @@ ensure_uv() {
     return 0
   fi
 
-  fail "uv is required but not found on PATH.
+  fail "uv is required but not found on PATH. Install it from https://astral.sh/uv"
 }
 
 msg "Preparing stable TinyML environment on Arch Linux: $ENV_NAME"
