@@ -10,6 +10,7 @@ __pycache__/
 data/
 figures/
 docs/presentation/internal
+docs/report/internal
 *.zip
 *.pt
 *.pkl
