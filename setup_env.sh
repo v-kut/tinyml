@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 # SPDX-FileCopyrightText: 2026 Vsevolod Kutsyn <vkutsyn@uw.edu>
 #
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 # SPDX-FileType: SOURCE
 
 # Stable TinyML Python environment for Arch Linux

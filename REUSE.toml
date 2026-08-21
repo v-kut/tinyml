@@ -2,16 +2,73 @@ version = 1
 SPDX-PackageName = "tinyml"
 SPDX-PackageSupplier = "https://github.com/v-kut/tinyml"
 
+# `labs/final/` carries its own REUSE.toml (MIT). These globs are scoped by
+# directory so they do not reach into it: annotations from several REUSE.toml
+# files aggregate, and an unscoped `**.py` would declare that subtree under two
+# licenses at once.
+
 # code
 [[annotations]]
-path = ["**.py", "**.ipynb", "**.tflite"]
+path = [
+  "homework/**.py",
+  "homework/**.ipynb",
+  "homework/**.ino",
+  "labs/lab*/**.py",
+  "labs/lab*/**.ipynb",
+  "labs/lab*/**.ino",
+  "tinyml-arduino/**.py",
+  "tinyml-arduino/**.ipynb",
+  "tinyml-arduino/**.ino"
+]
 SPDX-FileType = "SOURCE"
 SPDX-FileCopyrightText = "2026 Vsevolod Kutsyn <vkutsyn@uw.edu>"
-SPDX-License-Identifier = "Apache-2.0"
+SPDX-License-Identifier = "MIT"
+
+# datasets and generated model artifacts: trained weights, tool-emitted byte
+# arrays, and exported firmware bundles. Not hand-written, so CC0 rather than
+# the source license.
+[[annotations]]
+path = [
+  "homework/**.tflite",
+  "homework/**.h5",
+  "homework/**.cc",
+  "homework/**.h",
+  "homework/**.csv",
+  "homework/**.txt",
+  "homework/**.zip",
+  "labs/lab*/**.tflite",
+  "labs/lab*/**.h5",
+  "labs/lab*/**.cc",
+  "labs/lab*/**.h",
+  "labs/lab*/**.csv",
+  "labs/lab*/**.txt",
+  "labs/lab*/**.zip",
+  "tinyml-arduino/**.tflite",
+  "tinyml-arduino/**.h5",
+  "tinyml-arduino/**.cc",
+  "tinyml-arduino/**.h",
+  "tinyml-arduino/**.csv",
+  "tinyml-arduino/**.txt",
+  "tinyml-arduino/**.zip"
+]
+SPDX-FileType = "OTHER"
+SPDX-FileCopyrightText = "2026 Vsevolod Kutsyn <vkutsyn@uw.edu>"
+SPDX-License-Identifier = "CC0-1.0"
 
 # documentation
 [[annotations]]
-path = ["**.md", "**.pdf", "**.png"]
+path = [
+  "*.md",
+  "homework/**.md",
+  "homework/**.pdf",
+  "homework/**.png",
+  "labs/lab*/**.md",
+  "labs/lab*/**.pdf",
+  "labs/lab*/**.png",
+  "tinyml-arduino/**.md",
+  "tinyml-arduino/**.pdf",
+  "tinyml-arduino/**.png"
+]
 SPDX-FileType = "DOCUMENTATION"
 SPDX-FileCopyrightText = "2026 Vsevolod Kutsyn <vkutsyn@uw.edu>"
 SPDX-License-Identifier = "CC-BY-NC-4.0"
@@ -19,13 +76,14 @@ SPDX-License-Identifier = "CC-BY-NC-4.0"
 # config files
 [[annotations]]
 path = [
-  "**.github/**",
-  "**.gitignore",
-  "**.gitattributes",
-  "**.gitmodules",
+  ".gitignore",
+  "homework/**.gitignore",
+  "labs/lab*/**.gitignore",
+  "tinyml-arduino/**.gitignore",
+  ".gitattributes",
+  ".gitmodules",
   "lefthook.yml",
-  ".zed/**",
-  "labs/lab5/**.cc"
+  ".zed/**"
 ]
 SPDX-FileType = "OTHER"
 SPDX-FileCopyrightText = "2026 Vsevolod Kutsyn <vkutsyn@uw.edu>"

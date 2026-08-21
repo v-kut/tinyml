@@ -2,9 +2,13 @@ version = 1
 SPDX-PackageName = "tinyml-racing"
 SPDX-PackageSupplier = "https://github.com/v-kut/tinyml"
 
+# This subtree is self-contained: it ships its own `LICENSES/` so that
+# `reuse lint` passes when the directory is extracted on its own, and it also
+# lints correctly as part of the parent coursework repository.
+
 # Everything written for this project: Python package, sketch, tests, docs,
-# config. `override` because the repository root declares Apache-2.0/CC-BY-NC
-# for the other coursework and this subtree is MIT instead.
+# config. `override` because the repository root declares CC-BY-NC for docs and
+# CC0 for config, while this subtree is uniformly MIT.
 [[annotations]]
 path = "**"
 precedence = "override"

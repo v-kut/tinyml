@@ -1,0 +1,7 @@
+Third-party reference documents
+
+Files annotated with this identifier are published papers and course handouts
+written by third parties. They are included only as reading material for the
+coursework. All rights are reserved by their respective copyright holders; no
+license to them is granted by this repository, and they are not covered by the
+licenses that apply to the rest of the content.
