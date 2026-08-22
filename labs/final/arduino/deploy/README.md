@@ -78,11 +78,15 @@ the `Reply`. Rejections are `'E'` plus a `uint16_t`: the short-read count, or
 _before_ writing the error frame, so the host's next command byte survives and no
 payload byte reaches `loop()`, which dispatches on single bytes.
 
-`read_exact` reads with `Serial.read()` and keeps its own deadline, never
-`Serial.readBytes`. That is a latency contract, not a style: `Stream::readBytes` spends
-a `millis()` per byte inside `timedRead`, ~9 us on this core, on top of the ~8 us
-`USBSerial::read()` costs for the USB lock and the core's drain, and at 246 bytes a
-request that was 5.2 ms of a 5.9 ms control step. It is now 2.13 ms of 2.87.
+**Nothing in this sketch may read from `Serial`.** The receive path is `link_on_rx`,
+`rx_ring` and `read_exact`, and the reason is a latency contract: `USBSerial::read()`
+costs ~8 us a byte in USB locks and `Stream::readBytes` adds a `millis()` per byte on
+top, which at 246 bytes a request was 5.2 ms of a 5.9 ms control step. Taking the whole
+packet with `USBCDC::receive_nb` instead costs 0.48 us, but only works while the core's
+own 256-byte ring stays full, and a single `Serial.read`, `available` or `peek` anywhere
+would free space in it and hand the next packet back to the slow path. `Board._identify`
+fills that ring during the handshake, and an answered handshake is the proof it is full.
+See [docs/findings/link-latency.md](../../docs/findings/link-latency.md).
 
 `struct Reply` is `packed` and `aligned(4)`. The host unpacks the literal `<{n_out}fHH`,
 so a field added here would surface as noise rather than an error and the `static_assert`
@@ -91,7 +95,10 @@ handed to `tinyml_infer` as a `float *`, and an underaligned VSTR on Cortex-M4's
 UsageFault. Of the two timings it carries, `us_infer` brackets `tinyml_infer` alone and
 `us_read` covers the read plus the checksum verify; both saturate at 0xFFFF via
 `clamp_us`. `setup()` does not wait for the USB host at all: the handshake is
-`Board.__init__`'s 1.5 s sleep after opening the port, which resets the Nano.
+`Board.__init__`'s, after a 1.5 s sleep that covers the reboot an upload leaves behind.
+Opening the port does not reset this board -- unlike an AVR, the Nano resets only on the
+1200-baud touch -- so a sketch that has already been primed stays primed across a
+reconnect.
 
 ## Tests
 

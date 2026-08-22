@@ -453,14 +453,15 @@ intrinsics, not by reading a version number.
 
 | resource | budget             | model                                | whole sketch           |
 | :------- | :----------------- | :----------------------------------- | :--------------------- |
-| flash    | 983,040 B          | 2,412 B of constants (0.25 %)        | 104,748 B (10 %)       |
-| RAM      | 262,144 B          | 549 B scratch + 244 B input (0.30 %) | 44,864 B (17 %)        |
-| time     | 20,000 µs per step | 138 µs mean, 161 µs worst (0.7 %)    | 2.87 ms round trip     |
+| flash    | 983,040 B          | 2,412 B of constants (0.25 %)        | 105,004 B (10 %)       |
+| RAM      | 262,144 B          | 549 B scratch + 244 B input (0.30 %) | 45,384 B (17 %)        |
+| time     | 20,000 µs per step | 139 µs mean, 164 µs worst (0.7 %)    | 0.85 ms round trip     |
 
 : The device budget against what the model and the whole sketch actually use. The round trip
 is USB and host scheduling, not inference; it varies by a tenth of a millisecond between runs.
-It was 5.86 ms until the read path stopped going through `Stream::readBytes`, which spent a
-`millis()` and a USB lock on every byte of the 246-byte request.
+It was 5.86 ms until the sketch stopped reading a byte at a time through the Arduino core,
+which spent a `millis()` and a USB lock on every byte of the 246-byte request; it now takes
+whole packets out of the endpoint (`docs/findings/link-latency.md`).
 
 Scratch is three static buffers of `MODEL_MAX_WIDTH` — two float ping-pong, one int8 — sized
 from the widest layer, so it does not grow with depth. The kernel is not reentrant, which is

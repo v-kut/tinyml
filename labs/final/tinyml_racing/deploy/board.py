@@ -28,9 +28,14 @@ from tinyml_racing.utils import Run, setup_logging
 ARDUINO_VIDS = (0x2341, 0x2A03)
 BAUD = 500000
 
-# The nRF52840's full-speed CDC bulk endpoint size; see `Board._write_paced`.
-USB_PACKET = 64
-USB_FRAME_S = 0.00005
+# Handshake priming; see `Board._identify`. `\x00` because `loop()`'s dispatch
+# ignores every byte that is not a command, so filler that reaches the sketch
+# costs nothing. One block is exactly the core ring it has to fill, in whole
+# 64-byte packets and in its own write: a block sized to straddle a packet
+# boundary leaves the core mid-packet and does not prime in one round. The
+# remaining rounds are slack for a core that ships a bigger ring.
+PRIME_FILLER = b"\x00" * 256
+PRIME_TRIES = 8
 
 # What `link.h`'s `reject()` puts in the error frame instead of a byte count. A
 # count alone cannot distinguish "everything arrived and the xor was wrong" from
@@ -120,7 +125,9 @@ class Board:
         # half-constructed board would leak the fd and hold DTR (the Nano's
         # reset line) asserted for the life of the process.
         try:
-            time.sleep(1.5)  # opening the port resets the Nano; wait out the reboot
+            # Covers the reboot an upload leaves behind. Opening the port does not
+            # reset this board: unlike an AVR it resets only on the 1200-baud touch.
+            time.sleep(1.5)
             self._serial.reset_input_buffer()
             self.identity = self._identify()
         except BaseException:
@@ -142,9 +149,40 @@ class Board:
         return board
 
     def _identify(self) -> BoardIdentity:
-        self._serial.write(b"?")
-        self._serial.flush()
-        return BoardIdentity.parse(self._serial.readline().decode("ascii", "replace").strip())
+        """Handshake, and the priming that makes the link fast.
+
+        The sketch reads its own buffer, filled by an RX callback the Arduino
+        core's own drain callback runs ahead of. That drain copies nothing once
+        its 256-byte ring has no space, and nothing but a `Serial.read()` the
+        sketch never makes can free space, so the ring only has to be filled
+        once. Until it is, the core swallows what we send and the board is
+        silent; the '?' that comes back answered is proof that the fast path is
+        live, because reaching the sketch at all is what the answer means.
+
+        Sixteen 65-byte tries against a ring the size of four of them, so the
+        budget is mostly slack, and a board that answers on the first try (an
+        older sketch, or a core that orders the callbacks the other way) is
+        simply correct and slower. `docs/findings/link-latency.md`.
+        """
+        deadline = self._serial.timeout
+        self._serial.timeout = 0.25
+        try:
+            for _ in range(PRIME_TRIES):
+                self._serial.write(PRIME_FILLER)
+                self._serial.flush()
+                self._serial.write(b"?")
+                self._serial.flush()
+                line = self._serial.readline().decode("ascii", "replace").strip()
+                # Silence is the board still swallowing filler. Anything else is
+                # an answer, and `parse` says what is wrong with a bad one.
+                if line:
+                    return BoardIdentity.parse(line)
+        finally:
+            self._serial.timeout = deadline
+        raise ProtocolError(
+            f"the board did not answer the handshake in {PRIME_TRIES} tries; is the "
+            "sketch flashed, and is another program holding the port?"
+        )
 
     def verify(self, model: QuantModel) -> None:
         got = self.identity
@@ -169,28 +207,6 @@ class Board:
                 "the run it was flashed from."
             )
 
-    def _write_paced(self, frame: bytes) -> None:
-        """Write one endpoint-sized packet at a time, 50 us apart.
-
-        `USB_PACKET` is the device's own bulk endpoint size, so a request of
-        `2 + 4 * n_in` bytes leaves as ceil(len / 64) writes with a gap between
-        them (246 bytes -> 64+64+64+54 at the shipped n_in = 61) and no single
-        write can outrun the core's 256-byte ring however far behind the sketch
-        is. The gap busy-waits because 50 us is below the scheduler's resolution.
-
-        Kept because it is free, not because it is fast: paced, unpaced and one
-        unbroken write all measure 2.85-2.89 ms per step, and only the unpaced
-        run has ever dropped a frame. The step's cost is the device's read loop
-        (docs/findings/link-latency.md), not how the host hands the bytes over.
-        """
-        for start in range(0, len(frame), USB_PACKET):
-            self._serial.write(frame[start : start + USB_PACKET])
-            self._serial.flush()
-            if start + USB_PACKET < len(frame):
-                spin_until = time.perf_counter() + USB_FRAME_S
-                while time.perf_counter() < spin_until:
-                    pass
-
     def _desync(self, message: str) -> ProtocolError:
         """Drop whatever is still in the RX ring, then describe the failure.
 
@@ -207,7 +223,8 @@ class Board:
         want = 1 + self._resp.size + 1
 
         t0 = time.perf_counter_ns()
-        self._write_paced(b"R" + payload + bytes([xor8(payload)]))
+        self._serial.write(b"R" + payload + bytes([xor8(payload)]))
+        self._serial.flush()
         # The tag first, and the rest sized from it: an error frame is 3 bytes,
         # so reading the reply width would burn the whole serial timeout on every
         # rejected frame before the diagnosis below can print.

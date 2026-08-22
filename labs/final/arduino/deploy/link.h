@@ -1,6 +1,15 @@
+// The wire protocol, and the only thing here that talks to the host. USB CDC is
+// an unframed byte stream, so every frame carries its own tag and xor8.
+// `tinyml_racing/deploy/board.py` is the other half.
+
 #pragma once
 
+// `Serial`, `millis`, `micros`, `yield`. The sketch preamble arduino-cli generates
+// includes this too; spelling it out is what lets an editor resolve the header alone.
 #include <Arduino.h>
+// `_SerialUSB`, the `USBSerial` object behind the `Serial` shim. Nothing else in
+// this sketch may read from `Serial`: see `link_on_rx`.
+#include "USB/PluggableUSBSerial.h"
 
 #include "tinyml.h"
 
@@ -40,37 +49,74 @@ constexpr uint16_t clamp_us(uint32_t us) {
   return us > 0xFFFFu ? 0xFFFFu : (uint16_t)us;
 }
 
-// Exactly `n` bytes, or as many as arrived before the deadline.
+// The core's `main` calls `_SerialUSB.begin()` before `setup()`, `begin()` attaches
+// the core's own RX drain, and `data_rx()` runs callbacks in registration order with
+// no detach, so ours is always second. But that drain copies
+// `min(packet, rx_buffer.availableForStore())` bytes, and nothing except
+// `Serial.read/available/peek` ever frees space in that 256-byte ring. Never touch it
+// and it stays full, the core's drain becomes a no-op, and every packet reaches this
+// callback whole -- one `receive_nb` per packet at 0.48 us instead of ~8.3 us a byte.
 //
-// `Serial.read()` rather than `Serial.readBytes`, which is `Stream`'s and
-// spends a `millis()` per byte inside `timedRead`. `millis()` costs ~9 us on
-// this core and `USBSerial::read()` another ~8 (it takes the USB lock and runs
-// the core's drain on every call), so readBytes ran at ~21 us a byte and the
-// 246-byte request alone was 5.2 ms of a 5.9 ms control step. One clock read
-// per starved poll instead of one per byte halves that. See
-// docs/findings/link-latency.md; the remaining ~8 us a byte is
-// `USBSerial::read()` and there is no bulk accessor for its ring.
+// The host fills it during the handshake (`Board._identify`): the '?' that comes back
+// answered is proof the ring is full, because that is the only way it reached here.
+constexpr uint32_t RX_RING = 512;
+static_assert((RX_RING & (RX_RING - 1)) == 0, "RX_RING must be a power of two");
+static_assert(RX_RING >= 2 * (2 + sizeof(obs)),
+              "RX_RING must hold two requests, so a pipelining host never stalls");
+static uint8_t rx_ring[RX_RING];
+static volatile uint32_t rx_head = 0;
+static volatile uint32_t rx_tail = 0;
+
+static void link_on_rx() {
+  for (;;) {
+    const uint32_t space = RX_RING - (rx_head - rx_tail);
+    if (space == 0)
+      return;  // backpressure: mbed re-arms only once its buffer is empty, so we NAK
+    const uint32_t off = rx_head & (RX_RING - 1);
+    uint32_t span = RX_RING - off;
+    if (span > space)
+      span = space;
+    uint32_t got = 0;
+    _SerialUSB.receive_nb(rx_ring + off, span, &got);
+    if (got == 0)
+      return;
+    rx_head += got;
+  }
+}
+
+static uint32_t rx_available() { return rx_head - rx_tail; }
+
+static void rx_take(uint8_t *dst, uint32_t n) {
+  const uint32_t off = rx_tail & (RX_RING - 1);
+  const uint32_t span = RX_RING - off;
+  if (n <= span) {
+    memcpy(dst, rx_ring + off, n);
+  } else {
+    memcpy(dst, rx_ring + off, span);
+    memcpy(dst + span, rx_ring, n - span);
+  }
+  rx_tail += n;
+}
+
+static bool link_poll(uint8_t *cmd) {
+  if (rx_available() == 0)
+    return false;
+  rx_take(cmd, 1);
+  return true;
+}
+
 static size_t read_exact(uint8_t *dst, size_t n) {
   const uint32_t deadline = millis() + READ_TIMEOUT_MS;
-  size_t got = 0;
-
-  while (got < n) {
-    int avail = Serial.available();
-    if (avail <= 0) {
-      if ((int32_t)(millis() - deadline) >= 0)
-        break;
-      yield(); // Hands the RTOS the scheduling slot it needs to accept the rest
-      continue;
+  while (rx_available() < n) {
+    if ((int32_t)(millis() - deadline) >= 0) {
+      const uint32_t partial = rx_available();
+      rx_take(dst, partial);
+      return partial;
     }
-
-    size_t chunk = (size_t)avail;
-    if (chunk > (n - got))
-      chunk = n - got;
-    for (size_t i = 0; i < chunk; ++i)
-      dst[got + i] = (uint8_t)Serial.read();
-    got += chunk;
+    yield();
   }
-  return got;
+  rx_take(dst, (uint32_t)n);
+  return n;
 }
 
 // Sentinels in the error frame's `received` field. A real short read reports at
@@ -94,8 +140,8 @@ static void drain_to_idle() {
   uint32_t quiet_since = millis();
   while ((uint32_t)(millis() - quiet_since) < IDLE_GAP_MS &&
          (int32_t)(millis() - deadline) < 0) {
-    if (Serial.available() > 0) {
-      Serial.read();
+    if (rx_available() > 0) {
+      rx_tail = rx_head;
       quiet_since = millis();
       continue;
     }
@@ -117,7 +163,10 @@ static void reject(uint16_t received) {
 // `Serial` is already begun by the core's `main` before `setup` runs; this pins
 // the baud the host opens with. No `setTimeout`: nothing here uses `Stream`'s
 // timeout any more, `read_exact` keeping its own deadline.
-static void link_begin() { Serial.begin(500000); }
+static void link_begin() {
+  _SerialUSB.attach(link_on_rx);
+  Serial.begin(500000);
+}
 
 // Flushed like a reply: the host is blocked in `readline`, and a line left in
 // mbed's USB buffer costs it the whole timeout.

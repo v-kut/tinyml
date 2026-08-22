@@ -81,8 +81,8 @@ So ~103 us is MACs and loads, which no relaxation touches. Integer requantizatio
 fused int8-to-int8 activation table could recover most of the 35 us above that, a sixth
 of the kernel. Refused because `tests/ckernel`'s exact-equality diff would become a
 tolerance, `quantize.py` would carry a second definition of the model, and the loop waits
-on the link anyway: a step costs 2.87 ms of USB round trip
-([link-latency.md](link-latency.md)), so 138 us is 4.8% of it and 0.7% of the 20 ms
+on the link anyway: a step costs 0.85 ms of USB round trip
+([link-latency.md](link-latency.md)), so 138 us is 16% of it and 0.7% of the 20 ms
 control interval.
 
 Next exactness-preserving lever, unimplemented: layer 0 reloads the quantized activation
