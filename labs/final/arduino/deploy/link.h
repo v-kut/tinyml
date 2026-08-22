@@ -40,26 +40,35 @@ constexpr uint16_t clamp_us(uint32_t us) {
   return us > 0xFFFFu ? 0xFFFFu : (uint16_t)us;
 }
 
-// Drains exactly `n` bytes, or as many as arrive before the deadline.
+// Exactly `n` bytes, or as many as arrived before the deadline.
+//
+// `Serial.read()` rather than `Serial.readBytes`, which is `Stream`'s and
+// spends a `millis()` per byte inside `timedRead`. `millis()` costs ~9 us on
+// this core and `USBSerial::read()` another ~8 (it takes the USB lock and runs
+// the core's drain on every call), so readBytes ran at ~21 us a byte and the
+// 246-byte request alone was 5.2 ms of a 5.9 ms control step. One clock read
+// per starved poll instead of one per byte halves that. See
+// docs/findings/link-latency.md; the remaining ~8 us a byte is
+// `USBSerial::read()` and there is no bulk accessor for its ring.
 static size_t read_exact(uint8_t *dst, size_t n) {
   const uint32_t deadline = millis() + READ_TIMEOUT_MS;
   size_t got = 0;
 
-  while (got < n && (int32_t)(millis() - deadline) < 0) {
+  while (got < n) {
     int avail = Serial.available();
     if (avail <= 0) {
+      if ((int32_t)(millis() - deadline) >= 0)
+        break;
       yield(); // Hands the RTOS the scheduling slot it needs to accept the rest
       continue;
     }
 
-    // The clamp to `avail` keeps the deadline honest: without it `readBytes`
-    // blocks on `Stream::_timeout` waiting for bytes that never arrived.
     size_t chunk = (size_t)avail;
-    if (chunk > (n - got)) {
+    if (chunk > (n - got))
       chunk = n - got;
-    }
-
-    got += Serial.readBytes((char *)(dst + got), chunk);
+    for (size_t i = 0; i < chunk; ++i)
+      dst[got + i] = (uint8_t)Serial.read();
+    got += chunk;
   }
   return got;
 }
@@ -71,8 +80,8 @@ constexpr uint16_t REJECT_NO_CHECKSUM = 0xFFFEu;
 static_assert(sizeof(obs) < REJECT_NO_CHECKSUM,
               "a short-read count must not reach the reject sentinels");
 
-// Two USB full-speed frames and 40x `board.py`'s pacing, so a mid-frame gap in
-// a refused request cannot pass for the end of one.
+// Two USB full-speed frames, so a mid-frame gap in a refused request cannot
+// pass for the end of one.
 constexpr uint32_t IDLE_GAP_MS = 2;
 
 // loop() dispatches on single bytes and would read a payload 'R' as a command,
@@ -105,12 +114,10 @@ static void reject(uint16_t received) {
   Serial.flush();
 }
 
-// `Serial.setTimeout` bounds `readBytes` in `read_exact`; `Stream`'s 1000 ms
-// default would outlast READ_TIMEOUT_MS.
-static void link_begin() {
-  Serial.begin(500000);
-  Serial.setTimeout(READ_TIMEOUT_MS);
-}
+// `Serial` is already begun by the core's `main` before `setup` runs; this pins
+// the baud the host opens with. No `setTimeout`: nothing here uses `Stream`'s
+// timeout any more, `read_exact` keeping its own deadline.
+static void link_begin() { Serial.begin(500000); }
 
 // Flushed like a reply: the host is blocked in `readline`, and a line left in
 // mbed's USB buffer costs it the whole timeout.

@@ -77,4 +77,5 @@ Not covered: `export.py`, `board.py`, `evaluate.py` and `build.py`, which need t
 serial port or `arduino-cli`. `tinyml-board` is the manual check for the device half.
 
 Decisions and measurements: [docs/findings/quantization.md](../../docs/findings/quantization.md),
-[docs/findings/kernel-speed.md](../../docs/findings/kernel-speed.md).
+[docs/findings/kernel-speed.md](../../docs/findings/kernel-speed.md),
+[docs/findings/link-latency.md](../../docs/findings/link-latency.md).

@@ -78,6 +78,12 @@ the `Reply`. Rejections are `'E'` plus a `uint16_t`: the short-read count, or
 _before_ writing the error frame, so the host's next command byte survives and no
 payload byte reaches `loop()`, which dispatches on single bytes.
 
+`read_exact` reads with `Serial.read()` and keeps its own deadline, never
+`Serial.readBytes`. That is a latency contract, not a style: `Stream::readBytes` spends
+a `millis()` per byte inside `timedRead`, ~9 us on this core, on top of the ~8 us
+`USBSerial::read()` costs for the USB lock and the core's drain, and at 246 bytes a
+request that was 5.2 ms of a 5.9 ms control step. It is now 2.13 ms of 2.87.
+
 `struct Reply` is `packed` and `aligned(4)`. The host unpacks the literal `<{n_out}fHH`,
 so a field added here would surface as noise rather than an error and the `static_assert`
 on `sizeof(Reply)` is the only guard. `aligned(4)` is load-bearing: `&reply.action[0]` is
@@ -100,4 +106,5 @@ The compiled diff is for exact equality, including saturating frames and the
 
 Decisions and measurements:
 [docs/findings/kernel-speed.md](../../docs/findings/kernel-speed.md),
+[docs/findings/link-latency.md](../../docs/findings/link-latency.md),
 [docs/findings/quantization.md](../../docs/findings/quantization.md).

@@ -172,14 +172,16 @@ class Board:
     def _write_paced(self, frame: bytes) -> None:
         """Write one endpoint-sized packet at a time, 50 us apart.
 
-        mbed's `USBSerial` surfaces exactly one endpoint packet per
-        `Serial.read()` and only pumps it into the core's 255-byte ring when the
-        sketch asks, so one unbroken write outruns the pump and the tail is
-        dropped. `USB_PACKET` is the device's own bulk endpoint size, so a
-        request of `2 + 4 * n_in` bytes leaves as ceil(len / 64) writes with a
-        gap between them (246 bytes -> 64+64+64+54 at the shipped n_in = 61) and
-        no single write can outrun a 255-byte ring however far behind the sketch
+        `USB_PACKET` is the device's own bulk endpoint size, so a request of
+        `2 + 4 * n_in` bytes leaves as ceil(len / 64) writes with a gap between
+        them (246 bytes -> 64+64+64+54 at the shipped n_in = 61) and no single
+        write can outrun the core's 256-byte ring however far behind the sketch
         is. The gap busy-waits because 50 us is below the scheduler's resolution.
+
+        Kept because it is free, not because it is fast: paced, unpaced and one
+        unbroken write all measure 2.85-2.89 ms per step, and only the unpaced
+        run has ever dropped a frame. The step's cost is the device's read loop
+        (docs/findings/link-latency.md), not how the host hands the bytes over.
         """
         for start in range(0, len(frame), USB_PACKET):
             self._serial.write(frame[start : start + USB_PACKET])
