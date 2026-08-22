@@ -17,3 +17,7 @@ docs/report/internal
 *.tflite
 *.npz
 .venv-tinyml/
+
+# Editor: clangd's view of the sketch, absolute paths and machine-specific.
+.arduino-build/
+compile_commands.json

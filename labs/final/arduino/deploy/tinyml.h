@@ -1,11 +1,10 @@
 // Inference kernel for the quantized racing actor.
 //
-// Per layer:
+// Per layer, with `act` applied on every layer but the last:
 //     q[i]   = clamp(lrintf(h[i] * inv_sx), -127, 127)      int8
 //     acc[j] = sum_i w[j*n_in + i] * q[i]                   int32, exact
 //     h[j]   = b[j] + m[j] * (float)acc[j]                  float32
-//     h[j]   = act(h[j])                                    except the last
-//     layer
+//     h[j]   = act(h[j])
 
 #pragma once
 
@@ -26,10 +25,10 @@
 // Reported by IDENTITY, compared against `QuantModel.activation`.
 #define TINYML_ACT_NAME "tanh"
 
-// tanh from a 257-knot table, 1/32 apart over [0, 8], linear between knots.
-// Interpolation error peaks at 9.4e-5, 84x below the 1/127 LSB this is requantized
-// to one layer later (docs/findings/kernel-speed.md). Called directly: the trunk is
-// `nn.Tanh` and `export.extract_actor` refuses anything else.
+// tanh from a 257-knot table, 1/32 apart over [0, 8], linear between knots; what that
+// costs in exactness is measured in docs/findings/kernel-speed.md. Called rather than
+// dispatched to: the trunk is `nn.Tanh` and `export.extract_actor` refuses anything
+// else.
 #define TINYML_TANH_N 256
 #define TINYML_TANH_SCALE 32.0f // N / 8.0f: a power of two, so knots are exact
 
@@ -111,22 +110,21 @@ static inline float tinyml_tanh(float v) {
 
   const float lo = tinyml_tanh_lut[i];
   const float hi = tinyml_tanh_lut[i + 1];
-  float slope_approximation = lo + (t - (float)i) * (hi - lo);
+  const float y = lo + (t - (float)i) * (hi - lo);
 
-  return copysignf(slope_approximation, v);
+  return copysignf(y, v);
 }
 
 // Rounds half to even like NumPy's `rint`; `roundf` rounds half away from zero and
 // would disagree on exactly the ties a random test never generates. -128 is unused:
 // symmetric scales keep the grid centred on zero.
 //
-// Two implementations, one result. `lrintf` is a library call on this target, one
-// per input element per layer, and no math flag reduces it. VCVTR is the
-// instruction it calls out to: it rounds by FPSCR (round-half-even), and ARMv7-M
-// conversion already gives NaN as 0 and saturates out of range, so the rails become
-// integer compares afterwards instead of float compares before, each of which cost
-// a VMRS. Same value either way, so the paths stay bit-identical: `tests/ckernel`
-// diffs the portable one, `tinyml-board` diffs this one.
+// Two spellings, one value. VCVTR is the instruction `lrintf` is a library call to on
+// this target (docs/findings/kernel-speed.md): it rounds by FPSCR, round-half-even,
+// and ARMv7-M conversion already gives NaN as 0 and saturates out of range, so the
+// rails move after the conversion and become integer compares. Bit-identical either
+// way, which is the contract: `tests/ckernel` diffs the portable one, `tinyml-board`
+// diffs this one.
 #ifndef TINYML_QUANT_VFP
 #if defined(__ARM_FP) && (__ARM_FP & 4)
 #define TINYML_QUANT_VFP 1
@@ -164,11 +162,10 @@ static inline int8_t tinyml_quantize(float v, float inv_scale) {
 #endif
 
 // The only loop that matters: layer 0 dominates the MAC count because it is widest.
-//
-// SMLAD does two 16x16 MACs into one int32 accumulator, so four int8 products cost
-// two SMLADs plus four SXTB16s to widen the bytes. Written as ACLE intrinsics, which
-// is why the build requires a current arm-none-eabi (`build.py:ACLE_PROBE`; gcc 7's
-// `arm_acle.h` is unusable). `memcpy` of four bytes is the portable spelling of the
+// Four int8 products cost two SMLADs plus four SXTB16s to widen the bytes, which GCC
+// does not find on its own (docs/findings/kernel-speed.md). Written as ACLE
+// intrinsics, which is why the build requires a current arm-none-eabi
+// (`build.py:ACLE_PROBE`). `memcpy` of four bytes is the portable spelling of the
 // unaligned word load ARMv7-M does in one LDR, and the rows are contiguous.
 //
 // `TINYML_DOT_DSP` pins what the target picked. 0 forces the scalar path, and x86
